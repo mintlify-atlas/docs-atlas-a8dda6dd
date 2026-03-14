@@ -1,0 +1,134 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "gstack",
+  "projectDescription": "Claude Code workflow skills with headless browser automation — turn one generic assistant into a team of specialists.",
+  "theme": "aspen",
+  "primaryColor": "#141414",
+  "lightColor": "#da7656",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/workflow-modes",
+              "concepts/browser-automation",
+              "concepts/skill-system"
+            ]
+          },
+          {
+            "group": "Skills Guide",
+            "pages": [
+              "skills/plan-ceo-review",
+              "skills/plan-eng-review",
+              "skills/review",
+              "skills/ship",
+              "skills/browse",
+              "skills/qa",
+              "skills/setup-browser-cookies",
+              "skills/retro"
+            ]
+          },
+          {
+            "group": "Usage Patterns",
+            "pages": [
+              "patterns/feature-workflow",
+              "patterns/qa-testing",
+              "patterns/multi-session",
+              "patterns/greptile-integration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Browse Commands",
+            "pages": [
+              "reference/browse/navigation",
+              "reference/browse/reading",
+              "reference/browse/inspection",
+              "reference/browse/interaction",
+              "reference/browse/visual",
+              "reference/browse/tabs",
+              "reference/browse/server"
+            ]
+          },
+          {
+            "group": "Technical Details",
+            "pages": [
+              "reference/architecture",
+              "reference/snapshot-system",
+              "reference/security",
+              "reference/configuration"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/contributing",
+              "development/testing",
+              "development/skill-templates"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "changelog",
+              "troubleshooting",
+              "upgrading"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "8 opinionated workflow skills for Claude Code (founder, eng manager, QA, release engineer modes)",
+    "Headless browser automation with 40+ commands and sub-second latency",
+    "Ref-based element interaction (@e1, @e2) using ARIA tree",
+    "Persistent Chromium daemon with cookie/session state",
+    "Diff-aware QA testing (auto-detects affected pages from git diff)",
+    "Cookie import from real browsers (Chrome, Arc, Brave, Edge, Comet)",
+    "Greptile PR review integration with auto-triage",
+    "Team-aware retrospectives with per-contributor analysis"
+  ],
+  "publicApiSurface": [
+    "/plan-ceo-review - Founder mode for product direction",
+    "/plan-eng-review - Engineering manager mode for technical planning",
+    "/review - Paranoid staff engineer mode for code review",
+    "/ship - Release engineer mode for shipping branches",
+    "/browse - QA engineer mode with browser automation",
+    "/qa - QA lead mode for systematic testing",
+    "/setup-browser-cookies - Session manager for cookie import",
+    "/retro - Engineering manager mode for retrospectives",
+    "browse goto <url> - Navigate to URL",
+    "browse snapshot [flags] - Get ARIA tree with @refs",
+    "browse click <sel> - Click element",
+    "browse fill <sel> <val> - Fill input",
+    "browse screenshot [path] - Save screenshot",
+    "browse console [--errors] - Read console messages",
+    "browse network [--clear] - Read network requests",
+    "browse text - Get cleaned page text",
+    "browse html [selector] - Get HTML content",
+    "browse links - List all links",
+    "browse tabs - List open tabs",
+    "browse cookie-import-browser [browser] - Import cookies from real browser",
+    "browse diff <url1> <url2> - Compare pages",
+    "browse chain - Run commands from JSON",
+    "browse status - Health check",
+    "browse stop - Shutdown server"
+  ]
+}
