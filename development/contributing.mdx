@@ -1,0 +1,349 @@
+---
+title: Contributing
+description: Guide to contributing to gstack development
+---
+
+Thanks for wanting to make gstack better. Whether you're fixing a typo in a skill prompt or building an entirely new workflow, this guide will get you up and running fast.
+
+## Quick Start
+
+Get up and running with development mode in seconds:
+
+<Steps>
+  <Step title="Clone and install">
+    ```bash
+    git clone <repo> && cd gstack
+    bun install
+    ```
+  </Step>
+
+  <Step title="Activate dev mode">
+    ```bash
+    bin/dev-setup
+    ```
+    
+    This symlinks your repo into `.claude/skills/` so Claude Code reads skills straight from your checkout.
+  </Step>
+
+  <Step title="Edit and test">
+    Edit any `SKILL.md`, invoke it in Claude Code (e.g. `/review`), and see your changes live.
+  </Step>
+
+  <Step title="Deactivate when done">
+    ```bash
+    bin/dev-teardown
+    ```
+  </Step>
+</Steps>
+
+<Note>
+gstack skills are Markdown files that Claude Code discovers from a `skills/` directory. Dev mode makes your local edits take effect instantly without copying or deploying anything.
+</Note>
+
+## How Dev Mode Works
+
+`bin/dev-setup` creates a `.claude/skills/` directory inside the repo (gitignored) and fills it with symlinks pointing back to your working tree. Claude Code sees the local `skills/` first, so your edits win over the global install.
+
+```
+gstack/                          <- your working tree
+├── .claude/skills/              <- created by dev-setup (gitignored)
+│   ├── gstack -> ../../         <- symlink back to repo root
+│   ├── review -> gstack/review
+│   ├── ship -> gstack/ship
+│   └── ...                      <- one symlink per skill
+├── review/
+│   └── SKILL.md                 <- edit this, test with /review
+├── ship/
+│   └── SKILL.md
+├── browse/
+│   ├── src/                     <- TypeScript source
+│   └── dist/                    <- compiled binary (gitignored)
+└── ...
+```
+
+## Development Workflow
+
+### Day-to-Day Development
+
+<CodeGroup>
+```bash Enter dev mode
+bin/dev-setup
+```
+
+```bash Edit a skill
+vim review/SKILL.md
+```
+
+```bash Test in Claude Code
+# Changes are live immediately
+# > /review
+```
+
+```bash Rebuild browse binary
+# Only needed if you edit browse/src/*.ts
+bun run build
+```
+
+```bash Exit dev mode
+bin/dev-teardown
+```
+</CodeGroup>
+
+### Editing SKILL.md Files
+
+<Warning>
+SKILL.md files are **generated** from `.tmpl` templates. Don't edit the `.md` directly — your changes will be overwritten on the next build.
+</Warning>
+
+<Steps>
+  <Step title="Edit the template">
+    ```bash
+    vim SKILL.md.tmpl              # or browse/SKILL.md.tmpl
+    ```
+  </Step>
+
+  <Step title="Regenerate">
+    ```bash
+    bun run gen:skill-docs
+    ```
+  </Step>
+
+  <Step title="Check health">
+    ```bash
+    bun run skill:check
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+Use watch mode for faster iteration — auto-regenerates on save:
+```bash
+bun run dev:skill
+```
+</Tip>
+
+### Adding New Commands
+
+To add a browse command or snapshot flag:
+
+<Tabs>
+  <Tab title="Browse Command">
+    1. Add it to `browse/src/commands.ts`
+    2. Run `bun run build`
+    3. The command reference will auto-update in SKILL.md
+  </Tab>
+  
+  <Tab title="Snapshot Flag">
+    1. Add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`
+    2. Run `bun run build`
+    3. The flags table will auto-update in SKILL.md
+  </Tab>
+</Tabs>
+
+## Project Structure
+
+Understanding the codebase layout:
+
+```
+gstack/
+├── browse/          # Headless browser CLI (Playwright)
+│   ├── src/         # CLI + server + commands
+│   │   ├── commands.ts  # Command registry (single source of truth)
+│   │   └── snapshot.ts  # SNAPSHOT_FLAGS metadata array
+│   ├── test/        # Integration tests + fixtures
+│   └── dist/        # Compiled binary
+├── scripts/         # Build + DX tooling
+│   ├── gen-skill-docs.ts  # Template → SKILL.md generator
+│   ├── skill-check.ts     # Health dashboard
+│   └── dev-skill.ts       # Watch mode
+├── test/            # Skill validation + eval tests
+│   ├── helpers/     # skill-parser.ts, session-runner.ts
+│   ├── skill-validation.test.ts  # Tier 1: static command validation
+│   ├── gen-skill-docs.test.ts    # Tier 1: generator + quality evals
+│   ├── skill-e2e.test.ts         # Tier 2: Agent SDK E2E
+│   └── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge
+├── ship/            # Ship workflow skill
+├── review/          # PR review skill
+├── plan-ceo-review/ # /plan-ceo-review skill
+├── plan-eng-review/ # /plan-eng-review skill
+├── retro/           # Retrospective skill
+├── setup            # One-time setup: build binary + symlink skills
+├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
+├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
+└── package.json     # Build scripts for browse
+```
+
+## Testing & Validation
+
+See the [Testing Guide](/development/testing) for complete details on the 3-tier test system.
+
+### Quick Reference
+
+| Tier | Command | Cost | Speed |
+|------|---------|------|-------|
+| 1 — Static | `bun test` | Free | &lt;5s |
+| 2 — E2E | `bun run test:e2e` | ~\$0.50 | ~60s |
+| 3 — LLM eval | `bun run test:eval` | ~\$0.03 | ~10s |
+
+<CodeGroup>
+```bash Static validation (free)
+bun test
+```
+
+```bash E2E tests (requires SKILL_E2E=1)
+bun run test:e2e
+```
+
+```bash LLM-as-judge evals
+bun run test:eval
+```
+
+```bash All tests
+bun run test:all
+```
+</CodeGroup>
+
+## Conductor Workspaces
+
+If you're using [Conductor](https://conductor.build) to run multiple Claude Code sessions in parallel, `conductor.json` wires up workspace lifecycle automatically:
+
+| Hook | Script | What it does |
+|------|--------|-------------|
+| `setup` | `bin/dev-setup` | Copies `.env` from main worktree, installs deps, symlinks skills |
+| `archive` | `bin/dev-teardown` | Removes skill symlinks, cleans up `.claude/` directory |
+
+<Note>
+When Conductor creates a new workspace, `bin/dev-setup` runs automatically. It detects the main worktree (via `git worktree list`), copies your `.env` so API keys carry over, and sets up dev mode — no manual steps needed.
+</Note>
+
+**First-time setup:** Put your `ANTHROPIC_API_KEY` in `.env` in the main repo (see `.env.example`). Every Conductor workspace inherits it automatically.
+
+## Pull Request Guidelines
+
+Before submitting a PR:
+
+<Steps>
+  <Step title="Run tests">
+    ```bash
+    bun test  # Must pass
+    ```
+  </Step>
+
+  <Step title="Regenerate docs">
+    ```bash
+    bun run gen:skill-docs
+    ```
+  </Step>
+
+  <Step title="Commit both template and generated files">
+    Commit both `.tmpl` and `.md` files together
+  </Step>
+
+  <Step title="Use the ship skill">
+    ```bash
+    /ship
+    ```
+    
+    This runs tests, reviews the diff, bumps the version, and opens a PR.
+  </Step>
+</Steps>
+
+## Code Style
+
+- **SKILL.md files are generated.** Edit the `.tmpl` template, not the `.md`.
+- **Browse source changes need a rebuild.** If you touch `browse/src/*.ts`, run `bun run build`.
+- **Dev mode shadows your global install.** Project-local skills take priority over `~/.claude/skills/gstack`.
+- **`.env` propagates across worktrees.** Set it once in the main repo, all Conductor workspaces get it.
+- **`.claude/skills/` is gitignored.** The symlinks never get committed.
+
+## Testing a Branch in Another Repo
+
+When you're developing gstack in one workspace and want to test your branch in a different project:
+
+### Global Install Only
+
+Point your global install at the branch:
+
+```bash
+cd ~/.claude/skills/gstack
+git fetch origin
+git checkout origin/<branch>        # e.g. origin/v0.3.2
+bun install                         # in case deps changed
+bun run build                       # rebuild the binary
+```
+
+To go back to main:
+
+```bash
+cd ~/.claude/skills/gstack
+git checkout main && git pull
+bun run build
+```
+
+### Vendored Project Copy
+
+Some projects vendor gstack by copying it into the repo. This is a three-step process:
+
+<Steps>
+  <Step title="Update global install">
+    ```bash
+    cd ~/.claude/skills/gstack
+    git fetch origin
+    git checkout origin/<branch>
+    bun install && bun run build
+    ```
+  </Step>
+
+  <Step title="Replace vendored copy">
+    ```bash
+    cd /path/to/other-project
+    
+    # Remove old symlinks and vendored copy
+    for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do
+      rm -f .claude/skills/$s
+    done
+    rm -rf .claude/skills/gstack
+    
+    # Copy from global install (strips .git)
+    cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
+    rm -rf .claude/skills/gstack/.git
+    
+    # Rebuild and re-create symlinks
+    cd .claude/skills/gstack && ./setup
+    ```
+  </Step>
+
+  <Step title="Test your changes">
+    Open Claude Code in that project and use the skills.
+  </Step>
+</Steps>
+
+## Important Notes
+
+<Note>
+- SKILL.md files are generated from templates
+- Browse source changes require `bun run build`
+- Dev mode shadows your global install
+- Conductor workspaces are independent
+- `.env` propagates across worktrees
+- `.claude/skills/` is gitignored
+</Note>
+
+## Shipping Your Changes
+
+When you're happy with your skill edits:
+
+```bash
+/ship
+```
+
+This runs tests, reviews the diff, bumps the version, and opens a PR. See `ship/SKILL.md` for the full workflow.
+
+## Getting Help
+
+If you run into issues:
+
+- Check the [Architecture docs](/reference/architecture) for design decisions
+- Review the [Testing Guide](/development/testing) for test setup
+- Look at existing skills for examples
+- Open an issue on GitHub

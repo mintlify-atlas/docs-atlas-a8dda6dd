@@ -1,0 +1,525 @@
+---
+title: Inspection Commands
+description: Inspect page state, run JavaScript, check CSS, monitor console and network activity
+---
+
+Inspection commands allow you to examine page state, execute JavaScript, and monitor browser activity.
+
+## js
+
+Execute a JavaScript expression and return the result as a string.
+
+### Syntax
+
+```bash
+$B js <expr>
+```
+
+<ParamField path="expr" type="string" required>
+  JavaScript expression to evaluate in the page context.
+</ParamField>
+
+### Examples
+
+```bash
+# Check if text is present
+$B js "document.body.textContent.includes('Success')"
+
+# Get element count
+$B js "document.querySelectorAll('.item').length"
+
+# Get computed style
+$B js "getComputedStyle(document.querySelector('.header')).backgroundColor"
+
+# Check local storage
+$B js "localStorage.getItem('authToken')"
+
+# Verify form values
+$B js "document.querySelector('#email').value"
+```
+
+### Return Value
+
+Returns the result of the expression converted to a string. Objects are JSON-stringified.
+
+### Common Use Cases
+
+- Asserting page state
+- Checking JavaScript variables
+- Verifying DOM properties
+- Testing client-side logic
+- Debugging dynamic content
+
+<Warning>
+  The expression runs in the page context, not in Node.js. Browser APIs only.
+</Warning>
+
+---
+
+## eval
+
+Execute JavaScript code from a file and return the result.
+
+### Syntax
+
+```bash
+$B eval <file>
+```
+
+<ParamField path="file" type="string" required>
+  Path to JavaScript file. Must be under /tmp or the current working directory for security.
+</ParamField>
+
+### Examples
+
+```bash
+# Run a test script
+cat > /tmp/test.js << 'EOF'
+const items = document.querySelectorAll('.item');
+return Array.from(items).map(el => el.textContent);
+EOF
+$B eval /tmp/test.js
+
+# Complex validation logic
+cat > /tmp/validate.js << 'EOF'
+const form = document.querySelector('form');
+const isValid = form.checkValidity();
+const errors = Array.from(form.querySelectorAll('.error')).map(e => e.textContent);
+return { valid: isValid, errors };
+EOF
+$B eval /tmp/validate.js
+```
+
+### Return Value
+
+Returns the result of the last expression or return statement, converted to a string.
+
+### Common Use Cases
+
+- Running complex test logic
+- Reusing validation scripts
+- Extracting structured data
+- Running multi-step checks
+
+<Note>
+  For security, only files under /tmp or the current working directory can be executed.
+</Note>
+
+---
+
+## css
+
+Get the computed CSS value for an element property.
+
+### Syntax
+
+```bash
+$B css <sel> <prop>
+```
+
+<ParamField path="sel" type="string" required>
+  CSS selector or @ref to target element.
+</ParamField>
+
+<ParamField path="prop" type="string" required>
+  CSS property name (camelCase or kebab-case).
+</ParamField>
+
+### Examples
+
+```bash
+# Check element color
+$B css ".header" "color"
+
+# Verify display property
+$B css "#modal" "display"
+
+# Check computed dimensions
+$B css ".container" "width"
+
+# Using snapshot refs
+$B snapshot -i
+$B css @e3 "backgroundColor"
+
+# Verify responsive styles
+$B viewport 375x812
+$B css ".nav" "flexDirection"
+```
+
+### Return Value
+
+Returns the computed CSS value as a string (e.g., "rgb(255, 0, 0)", "16px", "flex").
+
+### Common Use Cases
+
+- Verifying styles are applied
+- Testing responsive design
+- Checking theme colors
+- Debugging layout issues
+
+---
+
+## attrs
+
+Get all HTML attributes of an element as JSON.
+
+### Syntax
+
+```bash
+$B attrs <sel|@ref>
+```
+
+<ParamField path="sel|@ref" type="string" required>
+  CSS selector or @ref from snapshot.
+</ParamField>
+
+### Examples
+
+```bash
+# Get button attributes
+$B attrs "#submit-btn"
+
+# Check data attributes
+$B attrs "[data-testid='user-card']"
+
+# Using snapshot refs
+$B snapshot -i
+$B attrs @e5
+
+# Verify link attributes
+$B attrs "a.primary-cta"
+```
+
+### Return Value
+
+Returns JSON object with all element attributes:
+
+```json
+{
+  "id": "submit-btn",
+  "class": "btn btn-primary",
+  "type": "submit",
+  "disabled": "",
+  "data-testid": "submit-button"
+}
+```
+
+### Common Use Cases
+
+- Verifying element attributes
+- Checking data attributes
+- Testing accessibility attributes (aria-*)
+- Debugging element state
+
+---
+
+## is
+
+Check element state (visible, enabled, checked, etc.).
+
+### Syntax
+
+```bash
+$B is <prop> <sel>
+```
+
+<ParamField path="prop" type="string" required>
+  State property to check: `visible`, `hidden`, `enabled`, `disabled`, `checked`, `editable`, or `focused`.
+</ParamField>
+
+<ParamField path="sel" type="string" required>
+  CSS selector or @ref.
+</ParamField>
+
+### Examples
+
+```bash
+# Check visibility
+$B is visible ".modal"
+$B is hidden "#loading-spinner"
+
+# Check form states
+$B is enabled "#submit-btn"
+$B is disabled "#submit-btn"
+$B is checked "#agree-checkbox"
+$B is editable "#name-field"
+
+# Check focus
+$B is focused "#search-input"
+
+# Using snapshot refs
+$B snapshot -i
+$B is visible @e3
+```
+
+### Return Value
+
+Returns "true" or "false".
+
+### Common Use Cases
+
+- Asserting element visibility
+- Verifying button states
+- Testing form validation
+- Checking focus management
+- Testing accessibility states
+
+<Tip>
+  Combine with `snapshot -D` to see what caused state changes.
+</Tip>
+
+---
+
+## console
+
+Get browser console messages (logs, warnings, errors).
+
+### Syntax
+
+```bash
+$B console [--clear|--errors]
+```
+
+<ParamField path="--clear" type="flag">
+  Clear the console buffer after displaying.
+</ParamField>
+
+<ParamField path="--errors" type="flag">
+  Show only errors and warnings.
+</ParamField>
+
+### Examples
+
+```bash
+# Get all console messages
+$B goto https://example.com
+$B console
+
+# Check for errors
+$B console --errors
+
+# Clear console for next test
+$B console --clear
+
+# Monitor errors during interaction
+$B console --clear
+$B click @e5
+$B console --errors
+```
+
+### Return Value
+
+Returns console messages with type and text:
+
+```
+[log] Page loaded successfully
+[warn] Deprecated API usage
+[error] Failed to fetch /api/data
+```
+
+### Common Use Cases
+
+- Debugging JavaScript errors
+- Verifying logging behavior
+- Catching warnings
+- Monitoring page health
+
+---
+
+## network
+
+Get network requests made by the page.
+
+### Syntax
+
+```bash
+$B network [--clear]
+```
+
+<ParamField path="--clear" type="flag">
+  Clear the network log after displaying.
+</ParamField>
+
+### Examples
+
+```bash
+# View all requests
+$B goto https://example.com
+$B network
+
+# Clear and monitor new requests
+$B network --clear
+$B click @e5
+$B network
+
+# Check for failed requests
+$B network | grep "404\|500\|failed"
+```
+
+### Return Value
+
+Returns list of requests with method, URL, and status:
+
+```
+GET https://example.com/ 200
+GET https://example.com/style.css 200
+POST https://api.example.com/data 201
+GET https://cdn.example.com/image.png 404
+```
+
+### Common Use Cases
+
+- Verifying API calls
+- Debugging failed requests
+- Testing network behavior
+- Monitoring resource loading
+
+---
+
+## dialog
+
+Get dialog messages (alerts, confirms, prompts).
+
+### Syntax
+
+```bash
+$B dialog [--clear]
+```
+
+<ParamField path="--clear" type="flag">
+  Clear the dialog log after displaying.
+</ParamField>
+
+### Examples
+
+```bash
+# Set up handler and trigger dialog
+$B dialog-accept "yes"
+$B click "#delete-button"
+$B dialog
+
+# Monitor prompts
+$B dialog --clear
+$B click @e7
+$B dialog
+```
+
+### Return Value
+
+Returns dialog type and message:
+
+```
+[alert] Changes saved successfully
+[confirm] Are you sure you want to delete?
+[prompt] Enter your name:
+```
+
+### Common Use Cases
+
+- Verifying alert messages
+- Testing confirmation dialogs
+- Debugging dialog behavior
+
+---
+
+## cookies
+
+Get all cookies as JSON.
+
+### Syntax
+
+```bash
+$B cookies
+```
+
+### Examples
+
+```bash
+# View all cookies
+$B goto https://example.com
+$B cookies
+
+# Check for specific cookie
+$B cookies | grep "session"
+```
+
+### Return Value
+
+Returns JSON array of cookies with name, value, domain, path, expires, httpOnly, secure, and sameSite.
+
+### Common Use Cases
+
+- Verifying cookie setting
+- Debugging authentication
+- Testing cookie attributes
+
+---
+
+## storage
+
+Read or write localStorage and sessionStorage.
+
+### Syntax
+
+```bash
+$B storage [set <key> <value>]
+```
+
+<ParamField path="set" type="flag">
+  Set localStorage value instead of reading.
+</ParamField>
+
+<ParamField path="key" type="string">
+  Storage key (when using set).
+</ParamField>
+
+<ParamField path="value" type="string">
+  Storage value (when using set).
+</ParamField>
+
+### Examples
+
+```bash
+# Read all storage
+$B storage
+
+# Set localStorage value
+$B storage set "authToken" "abc123"
+
+# Verify storage
+$B storage | grep "authToken"
+```
+
+### Return Value
+
+Returns JSON with localStorage and sessionStorage contents.
+
+---
+
+## perf
+
+Get page load performance timings.
+
+### Syntax
+
+```bash
+$B perf
+```
+
+### Examples
+
+```bash
+# Check load performance
+$B goto https://example.com
+$B perf
+```
+
+### Return Value
+
+Returns navigation timing metrics including domContentLoaded, load, and other performance marks.
+
+### Common Use Cases
+
+- Performance testing
+- Debugging slow loads
+- Monitoring page speed

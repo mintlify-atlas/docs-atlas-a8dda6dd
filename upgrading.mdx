@@ -1,0 +1,357 @@
+---
+title: Upgrading
+description: How to upgrade gstack to the latest version
+---
+
+This guide covers how to upgrade gstack, understand the update check system, and handle breaking changes between versions.
+
+## Quick Upgrade
+
+The fastest way to upgrade is to paste this into Claude Code:
+
+```
+Update gstack: run `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main && ./setup`. If this project also has gstack at .claude/skills/gstack, update it too: run `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies gstack-upgrade; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`
+```
+
+Claude will run the commands and upgrade both your global install and any project-local copies.
+
+## Automatic Update Checks
+
+Starting in version 0.3.4, gstack checks for updates once per day automatically.
+
+### How it works
+
+1. **Daily check** — When you invoke any gstack skill, it runs `bin/gstack-update-check` in the background
+2. **24-hour cache** — Results are cached in `~/.gstack/last-update-check` to avoid unnecessary network calls (&lt;5ms cached, ~200ms uncached)
+3. **User prompt** — If a new version is available, you'll see an interactive prompt: "gstack v0.3.5 is available (you're on v0.3.4). Upgrade now? Takes ~10 seconds."
+4. **Defer option** — Choose "Later" to reset the 24-hour timer and continue without upgrading
+
+<Info>
+The update check is non-blocking and silent when you're up to date. It only prompts when a new version is actually available.
+</Info>
+
+### Version check mechanism
+
+The update check compares your local `VERSION` file against the remote one on GitHub:
+
+```bash
+# Local version
+cat ~/.claude/skills/gstack/VERSION  # e.g., 0.3.4
+
+# Remote version (fetched via curl)
+curl -sf https://raw.githubusercontent.com/garrytan/gstack/main/VERSION  # e.g., 0.3.5
+```
+
+If they differ, an upgrade is available. The check includes safeguards:
+- 5-second timeout on network request
+- Validates response looks like a version number (rejects HTML error pages)
+- Falls back to "up to date" if remote fetch fails
+
+### Disable automatic checks
+
+If you want to disable automatic update checks entirely, create a permanent cache file:
+
+```bash
+mkdir -p ~/.gstack
+echo "UP_TO_DATE $(cat ~/.claude/skills/gstack/VERSION)" > ~/.gstack/last-update-check
+chattr +i ~/.gstack/last-update-check  # Make it immutable (Linux)
+# or on macOS:
+chflags uchg ~/.gstack/last-update-check
+```
+
+<Warning>
+Disabling automatic checks means you won't be notified of bug fixes or new features. We recommend leaving it enabled.
+</Warning>
+
+## Manual Upgrade Methods
+
+### Method 1: Using `/gstack-upgrade` skill
+
+The simplest method — just invoke the upgrade skill:
+
+```
+/gstack-upgrade
+```
+
+This skill:
+1. Detects your install type (global-git, local-git, vendored)
+2. Upgrades the appropriate installation
+3. Runs `./setup` to rebuild binaries and symlinks
+4. Shows a "What's New" summary from the CHANGELOG
+5. Marks the upgrade so the next skill invocation shows "Running gstack v&lbrace;new&rbrace; (just updated!)"
+
+<Info>
+The `/gstack-upgrade` skill was added in version 0.3.4. If you're on 0.3.3 or earlier, use Method 2 below.
+</Info>
+
+### Method 2: Git commands (global install)
+
+For git-based global installs at `~/.claude/skills/gstack`:
+
+```bash
+cd ~/.claude/skills/gstack
+git fetch origin
+git reset --hard origin/main
+./setup
+```
+
+<Note>
+We use `git reset --hard` instead of `git pull` to handle force-pushes and ensure a clean state. Any local changes will be discarded. If you have uncommitted changes you want to keep, run `git stash` first.
+</Note>
+
+### Method 3: Git commands (project-local install)
+
+For git-based project installs at `.claude/skills/gstack`:
+
+```bash
+cd .claude/skills/gstack
+git fetch origin
+git reset --hard origin/main
+./setup
+```
+
+### Method 4: Re-copy (vendored install)
+
+For vendored installs (no `.git` directory inside gstack), re-copy from the global install:
+
+<Steps>
+  <Step title="Update global install first">
+    ```bash
+    cd ~/.claude/skills/gstack
+    git fetch origin && git reset --hard origin/main
+    ./setup
+    ```
+  </Step>
+  
+  <Step title="Remove old skill symlinks">
+    ```bash
+    for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies gstack-upgrade; do
+      rm -f .claude/skills/$s
+    done
+    ```
+  </Step>
+  
+  <Step title="Remove old vendored copy">
+    ```bash
+    rm -rf .claude/skills/gstack
+    ```
+  </Step>
+  
+  <Step title="Copy from global install">
+    ```bash
+    cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
+    rm -rf .claude/skills/gstack/.git
+    ```
+  </Step>
+  
+  <Step title="Rebuild and re-link">
+    ```bash
+    cd .claude/skills/gstack && ./setup
+    ```
+  </Step>
+</Steps>
+
+## Install Type Detection
+
+The `/gstack-upgrade` skill auto-detects your install type:
+
+| Type | Location | Has `.git`? | Update Method |
+|------|----------|-------------|---------------|
+| **global-git** | `~/.claude/skills/gstack` | Yes | `git reset --hard origin/main` |
+| **local-git** | `.claude/skills/gstack` | Yes | `git reset --hard origin/main` |
+| **vendored** | `.claude/skills/gstack` | No | Clone fresh, replace directory |
+| **vendored-global** | `~/.claude/skills/gstack` | No | Clone fresh, replace directory |
+
+You can check your install type:
+
+```bash
+# Check for .git directory
+ls -la ~/.claude/skills/gstack/.git
+ls -la .claude/skills/gstack/.git
+```
+
+## Upgrading Both Global and Project Installs
+
+If you have both a global install (for general use) and a project-local install (committed to a repo), you need to upgrade both:
+
+```bash
+# 1. Upgrade global
+cd ~/.claude/skills/gstack
+git fetch origin && git reset --hard origin/main
+./setup
+
+# 2. Upgrade project copy
+cd /path/to/your/project
+for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies gstack-upgrade; do
+  rm -f .claude/skills/$s
+done
+rm -rf .claude/skills/gstack
+cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
+rm -rf .claude/skills/gstack/.git
+cd .claude/skills/gstack && ./setup
+```
+
+<Info>
+Project-local installs take priority over global installs. If you only upgrade the global one, your project will still use the old version.
+</Info>
+
+## Post-Upgrade Verification
+
+After upgrading, verify everything works:
+
+<Steps>
+  <Step title="Check version">
+    ```bash
+    cat ~/.claude/skills/gstack/VERSION
+    ```
+    Should show the new version number (e.g., `0.3.5`).
+  </Step>
+  
+  <Step title="Test browse binary">
+    ```bash
+    ~/.claude/skills/gstack/browse/dist/browse help
+    ```
+    Should output the command reference without errors.
+  </Step>
+  
+  <Step title="Verify skill symlinks">
+    ```bash
+    ls -la ~/.claude/skills/browse
+    ls -la ~/.claude/skills/qa
+    ```
+    Should point to `gstack/browse` and `gstack/qa` respectively.
+  </Step>
+  
+  <Step title="Test in Claude Code">
+    Open Claude Code and try invoking a skill:
+    ```
+    /browse goto https://example.com
+    ```
+  </Step>
+</Steps>
+
+## Breaking Changes and Migration
+
+### Migrating from 0.3.1 to 0.3.2+
+
+<Warning>
+Version 0.3.2 introduced breaking changes to state file locations and port allocation.
+</Warning>
+
+**What changed:**
+- State files moved from `/tmp/browse-server.json` to `.gstack/browse.json` in project root
+- Log files moved from `/tmp/browse-*.log` to `.gstack/browse-*.log`
+- Port selection changed from sequential scan (9400-9409) to random (10000-60000)
+- `CONDUCTOR_PORT` magic offset removed
+
+**Migration steps:**
+
+1. Upgrade gstack (see methods above)
+2. Kill any running browse servers:
+   ```bash
+   ps aux | grep browse | grep -v grep | awk '{print $2}' | xargs kill
+   ```
+3. Clean up old state files:
+   ```bash
+   rm -f /tmp/browse-server*.json /tmp/browse-*.log /tmp/gstack-latest-version
+   ```
+4. Next `/browse` invocation will create new state in `.gstack/`
+
+<Info>
+The 0.3.2 setup script automatically cleans up the legacy `/tmp/gstack-latest-version` cache file.
+</Info>
+
+### Migrating from 0.0.x to 0.3.0+
+
+No migration steps required. The 0.3.0 release is backward compatible with 0.0.x installations.
+
+## Rollback to Previous Version
+
+If you need to rollback to a previous version:
+
+```bash
+cd ~/.claude/skills/gstack
+git fetch origin
+git reset --hard v0.3.4  # Replace with desired version tag
+./setup
+```
+
+To see available versions:
+
+```bash
+cd ~/.claude/skills/gstack
+git tag -l | sort -V
+```
+
+<Warning>
+Rollback may not work correctly if you're downgrading across a breaking change (e.g., 0.3.2 → 0.3.1). You may need to manually clean up state files.
+</Warning>
+
+## Troubleshooting Upgrade Issues
+
+### "Already up to date" but you know there's a new version
+
+Force fetch with `--tags`:
+
+```bash
+cd ~/.claude/skills/gstack
+git fetch --tags origin
+git reset --hard origin/main
+./setup
+```
+
+### Upgrade succeeds but skills still show old behavior
+
+Restart Claude Code to reload the skill definitions.
+
+### Binary fails after upgrade
+
+Recompile from scratch:
+
+```bash
+cd ~/.claude/skills/gstack
+rm -rf node_modules browse/dist
+bun install
+bun run build
+```
+
+### Local changes get overwritten
+
+If you have local modifications you want to keep:
+
+```bash
+cd ~/.claude/skills/gstack
+git stash
+git fetch origin && git reset --hard origin/main
+git stash pop  # Restore your changes
+./setup
+```
+
+The `/gstack-upgrade` skill automatically stashes and warns you if local changes were saved.
+
+## Checking for Updates Manually
+
+To check if an update is available without waiting for the automatic check:
+
+```bash
+rm ~/.gstack/last-update-check  # Clear cache
+~/.claude/skills/gstack/bin/gstack-update-check
+```
+
+Output:
+- `UPGRADE_AVAILABLE <old> <new>` — Update available
+- `UP_TO_DATE <version>` — Already on latest
+- (nothing) — Cache is fresh or couldn't reach remote
+
+## Staying Current
+
+Recommended practices:
+
+1. **Leave automatic checks enabled** — You'll be notified when updates are available
+2. **Upgrade promptly** — Bug fixes and security improvements ship regularly
+3. **Read the changelog** — The `/gstack-upgrade` skill shows you what changed
+4. **Test after upgrading** — Run a quick smoke test with `/browse` or `/qa` to verify
+
+<Info>
+For full release notes, see the [Changelog](/changelog).
+</Info>

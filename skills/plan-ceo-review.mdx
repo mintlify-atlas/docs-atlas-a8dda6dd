@@ -1,0 +1,354 @@
+---
+title: "plan-ceo-review"
+description: "Founder-mode plan review that rethinks the problem and finds the 10-star product"
+---
+
+# plan-ceo-review
+
+**CEO/founder-mode plan review.** Rethink the problem, find the 10-star product hiding inside the request, challenge premises, expand scope when it creates a better product.
+
+## When to Use
+
+Use `/plan-ceo-review` when you want to:
+
+- **Pressure-test product direction** before committing to implementation
+- **Challenge whether you're building the right thing** — not just building the thing right
+- **Find the 10-star version** of a feature request that initially sounds routine
+- **Think with founder taste and ambition** instead of just accepting the literal ask
+- **Expand scope strategically** when it unlocks dramatically more value
+
+<Note>
+**This is Brian Chesky mode.** The model doesn't take the request literally — it asks what product outcome you're actually trying to achieve, then finds the version that feels inevitable and delightful.
+</Note>
+
+## Philosophy
+
+From the README:
+
+> The point is not to implement the obvious ticket. The point is to rethink the problem from the user's point of view and find the version that feels inevitable, delightful, and maybe even a little magical.
+
+This skill exists because weak assistants implement exactly what you said. `/plan-ceo-review` asks whether "photo upload" is even the feature — maybe the real feature is helping someone create a listing that actually sells.
+
+## Three Modes
+
+The skill operates in one of three modes, selected during Step 0:
+
+### SCOPE EXPANSION
+You're building a cathedral. Push scope UP. Ask "what would make this 10x better for 2x the effort?" Dream big. Find the platonic ideal.
+
+### HOLD SCOPE
+The plan's scope is accepted. Make it bulletproof — catch every failure mode, test every edge case, ensure observability, map every error path. Do not silently reduce OR expand.
+
+### SCOPE REDUCTION
+You're a surgeon. Find the minimum viable version that achieves the core outcome. Cut everything else. Be ruthless.
+
+<Warning>
+Once you select a mode, the skill commits fully. It won't silently drift to a different mode mid-review.
+</Warning>
+
+## Example: Photo Upload Feature
+
+From the README example for a listing app:
+
+```
+You:   I want to add seller photo upload to the listing app.
+       Sellers should be able to upload a photo of their item
+       and we create the listing from it.
+
+You:   /plan-ceo-review
+
+Claude: "Photo upload" is not the feature. The real job is helping
+        sellers create listings that actually sell. Here's what the
+        10-star version looks like: auto-identify the product from
+        the photo, pull specs and pricing comps from the web, draft
+        the title and description, suggest the best hero image...
+```
+
+Instead of just adding a file picker, it asks:
+
+- Can we identify the product from the photo?
+- Can we infer the SKU or model number?
+- Can we search the web and draft the title automatically?
+- Can we pull specs, category, and pricing comps?
+- Can we suggest which photo will convert best as the hero image?
+- Can we detect when the uploaded photo is ugly, dark, cluttered, or low-trust?
+
+**That's the 10-star product hiding inside the request.**
+
+## Key Features
+
+### Pre-Review System Audit
+Before starting the review, the skill runs a system audit:
+
+```bash
+git log --oneline -30                    # Recent history
+git diff main --stat                     # What's already changed
+git stash list                           # Any stashed work
+grep -r "TODO|FIXME|HACK|XXX"            # Known pain points
+```
+
+This builds context so the review is grounded in the actual codebase state.
+
+### Step 0: Nuclear Scope Challenge
+
+Before any review happens, the skill challenges the premise:
+
+1. **Premise Challenge** — Is this the right problem to solve?
+2. **Existing Code Leverage** — What already exists that solves sub-problems?
+3. **Dream State Mapping** — Where should this system be in 12 months?
+4. **Mode-Specific Analysis**:
+   - **EXPANSION**: 10x check, platonic ideal, delight opportunities
+   - **HOLD SCOPE**: Complexity check, minimum changes
+   - **REDUCTION**: Ruthless cut, what can be a follow-up PR?
+5. **Temporal Interrogation** — What decisions during implementation should be resolved NOW?
+
+<Tip>
+Step 0 is where the skill earns its value. It surfaces the hard questions before you write a line of code.
+</Tip>
+
+### 10 Review Sections
+
+After mode selection, the skill runs 10 comprehensive review sections:
+
+<Accordion title="1. Architecture Review">
+- System design and component boundaries
+- Data flow — all four paths (happy, nil, empty, error)
+- State machines with ASCII diagrams
+- Coupling concerns and dependency graphs
+- Scaling characteristics and single points of failure
+- Security architecture (auth boundaries, trust models)
+- Production failure scenarios
+- Rollback posture
+
+**EXPANSION mode adds:** "What would make this architecture beautiful? What infrastructure would make this a platform?"
+</Accordion>
+
+<Accordion title="2. Error & Rescue Map">
+This is the section that catches silent failures.
+
+For every method/service/codepath that can fail, the skill builds a table:
+
+```
+METHOD/CODEPATH          | WHAT CAN GO WRONG           | EXCEPTION CLASS
+-------------------------|-----------------------------|-----------------
+ExampleService#call      | API timeout                 | Faraday::TimeoutError
+                         | API returns 429             | RateLimitError
+                         | API returns malformed JSON  | JSON::ParserError
+
+EXCEPTION CLASS              | RESCUED?  | RESCUE ACTION          | USER SEES
+-----------------------------|-----------|------------------------|---------
+Faraday::TimeoutError        | Y         | Retry 2x, then raise   | "Service unavailable"
+RateLimitError               | Y         | Backoff + retry        | Nothing (transparent)
+JSON::ParserError            | N ← GAP   | —                      | 500 error ← BAD
+```
+
+**Rules:**
+- `rescue StandardError` is ALWAYS a smell
+- Every rescued error must retry, degrade gracefully, or re-raise with context
+- "Swallow and continue" is almost never acceptable
+</Accordion>
+
+<Accordion title="3. Security & Threat Model">
+- Attack surface expansion
+- Input validation for every user input (nil, empty, wrong type, injection)
+- Authorization — is data scoped to the right user/role?
+- Secrets and credentials handling
+- Dependency risk
+- Data classification (PII, payment data)
+- Injection vectors (SQL, command, template, LLM prompt)
+- Audit logging
+</Accordion>
+
+<Accordion title="4. Data Flow & Interaction Edge Cases">
+Traces data through the system with adversarial thoroughness.
+
+**Data Flow:** For every flow, ASCII diagram showing:
+```
+INPUT ──▶ VALIDATION ──▶ TRANSFORM ──▶ PERSIST ──▶ OUTPUT
+  │            │              │            │           │
+  ▼            ▼              ▼            ▼           ▼
+[nil?]    [invalid?]    [exception?]  [conflict?]  [stale?]
+[empty?]  [too long?]   [timeout?]    [dup key?]   [partial?]
+```
+
+**Interaction Edge Cases:** For every user-visible interaction:
+- Double-click submit
+- Navigate away mid-action
+- Slow connection
+- Stale state
+- Browser back button
+</Accordion>
+
+<Accordion title="5. Code Quality Review">
+- Code organization and module structure
+- DRY violations (aggressive flagging)
+- Naming quality
+- Error handling patterns
+- Missing edge cases
+- Over-engineering vs under-engineering
+- Cyclomatic complexity
+</Accordion>
+
+<Accordion title="6. Test Review">
+Makes a complete diagram of:
+- New UX flows
+- New data flows
+- New codepaths
+- New background jobs
+- New integrations
+- New error/rescue paths
+
+For each: what type of test? Does it exist? What's the happy path test? What's the failure path test? What's the edge case test?
+
+**Test ambition check:**
+- What's the test that would make you confident shipping at 2am on a Friday?
+- What's the test a hostile QA engineer would write to break this?
+- What's the chaos test?
+</Accordion>
+
+<Accordion title="7. Performance Review">
+- N+1 queries
+- Memory usage
+- Database indexes
+- Caching opportunities
+- Background job sizing
+- Slow paths and p99 latency
+- Connection pool pressure
+</Accordion>
+
+<Accordion title="8. Observability & Debuggability">
+- Logging (structured, entry/exit/branches)
+- Metrics (what tells you it's working? broken?)
+- Tracing (trace IDs propagated?)
+- Alerting
+- Dashboards
+- Debuggability (can you reconstruct what happened from logs?)
+- Admin tooling
+- Runbooks
+
+**EXPANSION mode adds:** "What observability would make this feature a joy to operate?"
+</Accordion>
+
+<Accordion title="9. Deployment & Rollout">
+- Migration safety (backward-compatible? zero-downtime?)
+- Feature flags
+- Rollout order
+- Rollback plan (explicit step-by-step)
+- Deploy-time risk window
+- Environment parity
+- Post-deploy verification checklist
+- Smoke tests
+</Accordion>
+
+<Accordion title="10. Long-Term Trajectory">
+- Technical debt introduced
+- Path dependency (does this make future changes harder?)
+- Knowledge concentration
+- Reversibility (1-5 scale)
+- Ecosystem fit
+- The 1-year question
+
+**EXPANSION mode adds:** What comes after this ships? Phase 2? Phase 3? Platform potential?
+</Accordion>
+
+## Required Outputs
+
+At the end of the review, the skill produces:
+
+### "NOT in scope" section
+Work considered and explicitly deferred, with one-line rationale each.
+
+### "What already exists" section
+Existing code/flows that partially solve sub-problems and whether the plan reuses them.
+
+### "Dream state delta" section
+Where this plan leaves you relative to the 12-month ideal.
+
+### Error & Rescue Registry
+Complete table of every method that can fail, every exception class, rescued status, rescue action, user impact.
+
+### Failure Modes Registry
+```
+CODEPATH | FAILURE MODE   | RESCUED? | TEST? | USER SEES?     | LOGGED?
+---------|----------------|----------|-------|----------------|---------
+```
+
+Any row with RESCUED=N, TEST=N, USER SEES=Silent → **CRITICAL GAP**.
+
+### TODOS.md updates
+Each potential TODO gets its own AskUserQuestion. Never batched. Includes:
+- What (one-line description)
+- Why (concrete problem it solves)
+- Pros (what you gain)
+- Cons (cost, complexity, risks)
+- Context (enough for someone in 3 months)
+- Effort estimate (S/M/L/XL)
+- Priority (P1/P2/P3)
+
+### Delight Opportunities (EXPANSION mode only)
+At least 5 "bonus chunk" opportunities (&lt;30 min each) that would make users think "oh nice, they thought of that."
+
+### Diagrams (mandatory)
+1. System architecture
+2. Data flow (including shadow paths)
+3. State machine
+4. Error flow
+5. Deployment sequence
+6. Rollback flowchart
+
+### Completion Summary
+A structured summary showing how many issues were found in each section, how many CRITICAL GAPS exist, how many TODOS were proposed, etc.
+
+## Usage
+
+```bash
+/plan-ceo-review
+```
+
+The skill will:
+1. Run the pre-review system audit
+2. Challenge the premise and present mode options
+3. Wait for you to select EXPANSION, HOLD SCOPE, or REDUCTION
+4. Run all 10 review sections
+5. Present findings as individual AskUserQuestion calls (one issue = one question)
+6. Produce all required outputs
+
+<Warning>
+**One issue = one AskUserQuestion call.** Never batched. Each question presents 2-3 concrete options, states the recommendation FIRST, explains WHY in 1-2 sentences.
+</Warning>
+
+## Engineering Preferences
+
+The skill uses these preferences to guide recommendations:
+
+- DRY is important — flag repetition aggressively
+- Well-tested code is non-negotiable
+- Code should be "engineered enough" — not fragile, not over-abstracted
+- Err on the side of handling more edge cases
+- Bias toward explicit over clever
+- Minimal diff: fewest new abstractions and files touched
+- Observability is not optional
+- Security is not optional
+- Deployments are not atomic — plan for partial states, rollbacks, feature flags
+- ASCII diagrams in code comments for complex designs
+- Diagram maintenance is part of the change
+
+## Prime Directives
+
+From the skill file:
+
+1. **Zero silent failures.** Every failure mode must be visible.
+2. **Every error has a name.** Don't say "handle errors" — name the exception class.
+3. **Data flows have shadow paths.** Nil input, empty input, upstream error — trace all.
+4. **Interactions have edge cases.** Double-click, navigate-away, slow connection, stale state.
+5. **Observability is scope, not afterthought.** Dashboards and alerts are first-class deliverables.
+6. **Diagrams are mandatory.** No non-trivial flow goes undiagrammed.
+7. **Everything deferred must be written down.** TODOS.md or it doesn't exist.
+8. **Optimize for 6-month future, not just today.**
+9. **You have permission to say "scrap it and do this instead."**
+
+## Related Skills
+
+- **[plan-eng-review](/skills/plan-eng-review)** — Engineering manager mode: lock in architecture, data flow, diagrams, edge cases, tests. Use after CEO review sets product direction.
+- **[review](/skills/review)** — Paranoid staff engineer mode: pre-landing PR review for structural issues that tests don't catch.
+- **[ship](/skills/ship)** — Release engineer mode: sync main, run tests, resolve reviews, push, open PR.

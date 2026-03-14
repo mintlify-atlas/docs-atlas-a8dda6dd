@@ -1,0 +1,318 @@
+---
+title: Server Commands
+description: Manage the browse server lifecycle, check health, and control server state
+---
+
+Server commands allow you to manage the headless browser server that powers the browse tool.
+
+## status
+
+Check the health and status of the browse server.
+
+### Syntax
+
+```bash
+$B status
+```
+
+### Examples
+
+```bash
+# Check if server is running
+$B status
+
+# Verify server health before test
+$B status
+$B goto https://example.com
+```
+
+### Return Value
+
+Returns server status information including:
+- Server state (running/stopped)
+- Uptime
+- Number of open tabs
+- Memory usage
+- Process ID
+
+Example output:
+```
+Server: running
+Uptime: 2h 34m
+Tabs: 3
+PID: 12345
+```
+
+### Common Use Cases
+
+- Verifying server is running
+- Debugging connection issues
+- Monitoring server health
+- Checking resource usage
+- Troubleshooting test failures
+
+<Note>
+  The server starts automatically on the first browse command (~3s startup time). Subsequent commands are ~100ms.
+</Note>
+
+```bash
+# Example: Health check before important test
+$B status
+if [ $? -eq 0 ]; then
+  echo "Server healthy, proceeding with tests"
+  $B goto https://app.com
+else
+  echo "Server not responding, restarting"
+  $B restart
+fi
+```
+
+---
+
+## stop
+
+Shutdown the browse server gracefully.
+
+### Syntax
+
+```bash
+$B stop
+```
+
+### Examples
+
+```bash
+# Stop the server
+$B stop
+
+# Clean shutdown after tests
+$B goto https://example.com
+$B screenshot /tmp/final.png
+$B stop
+
+# Stop and verify
+$B stop
+$B status  # Should show server stopped
+```
+
+### Return Value
+
+Returns success when the server has shut down completely.
+
+### Common Use Cases
+
+- Cleaning up after test sessions
+- Freeing system resources
+- Resetting server state
+- Troubleshooting by forcing clean restart
+- CI/CD pipeline cleanup
+
+<Warning>
+  Stopping the server closes all tabs and clears all session state (cookies, localStorage, etc.).
+</Warning>
+
+<Note>
+  The server will automatically restart on the next browse command.
+</Note>
+
+```bash
+# Example: Complete cleanup between test suites
+$B stop
+sleep 1
+$B status  # Verify stopped
+# Next command will auto-start fresh server
+$B goto https://example.com
+```
+
+---
+
+## restart
+
+Restart the browse server, preserving configuration but clearing state.
+
+### Syntax
+
+```bash
+$B restart
+```
+
+### Examples
+
+```bash
+# Restart the server
+$B restart
+
+# Restart to clear state
+$B goto https://example.com
+$B fill "#input" "test"
+$B restart  # State cleared
+$B goto https://example.com
+$B js "document.querySelector('#input').value"  # Empty
+
+# Restart after errors
+$B console --errors
+# If seeing persistent errors:
+$B restart
+$B goto https://example.com
+```
+
+### Return Value
+
+Returns success when the server has restarted and is ready.
+
+### Common Use Cases
+
+- Clearing session state between tests
+- Recovering from errors
+- Resetting browser state
+- Starting fresh without manual stop/start
+- Debugging state-related issues
+
+<Tip>
+  Use `restart` instead of `stop` + waiting + next command for faster state reset.
+</Tip>
+
+```bash
+# Example: Test clean vs dirty state
+# Test 1: Clean state
+$B restart
+$B goto https://app.com
+$B is visible ".login-form"  # Should see login
+
+# Test 2: After login
+$B fill "#username" "test"
+$B fill "#password" "pass"
+$B click "#submit"
+$B goto https://app.com
+$B is visible ".dashboard"  # Should see dashboard
+
+# Test 3: Clean state again
+$B restart
+$B goto https://app.com
+$B is visible ".login-form"  # Back to login
+```
+
+## Server Lifecycle
+
+Understanding the browse server lifecycle:
+
+### Automatic Startup
+
+```bash
+# First command starts server (~3s)
+$B goto https://example.com
+# Server now running in background
+
+# Subsequent commands are fast (~100ms)
+$B text
+$B screenshot /tmp/test.png
+$B click "#button"
+```
+
+### State Persistence
+
+The server maintains state between commands:
+- Cookies and localStorage persist
+- Tabs remain open
+- Navigation history preserved
+- Network headers and user agent settings retained
+
+```bash
+# State persists across commands
+$B goto https://app.com/login
+$B fill "#username" "test"
+$B click "#submit"
+# Session cookie is set
+
+$B goto https://app.com/dashboard
+# Still logged in - cookie was preserved
+```
+
+### State Clearing
+
+To clear state:
+
+```bash
+# Method 1: Restart (fast, ~1s)
+$B restart
+
+# Method 2: Stop (slower, requires restart)
+$B stop
+# ... do other things ...
+$B goto https://example.com  # Auto-starts server
+
+# Method 3: Manual cookie/storage clear (preserves tabs)
+$B cookies | jq -r '.[].name' | xargs -I{} $B cookie "{}="
+$B storage set "" ""
+```
+
+### Error Recovery
+
+```bash
+# If server becomes unresponsive
+$B status
+if [ $? -ne 0 ]; then
+  echo "Server unhealthy, restarting"
+  $B restart
+  $B status  # Verify recovery
+fi
+```
+
+### CI/CD Integration
+
+```bash
+# Cleanup in CI pipeline
+trap '$B stop' EXIT
+
+# Run tests
+$B goto https://staging.example.com
+$B screenshot /tmp/test.png
+# ... more tests ...
+
+# Server automatically stops on exit
+```
+
+<Note>
+  The server runs as a background process and automatically manages the Chromium browser instance.
+</Note>
+
+## Troubleshooting
+
+### Server Won't Start
+
+```bash
+# Check status
+$B status
+
+# Try clean restart
+$B stop
+sleep 2
+$B goto about:blank
+```
+
+### Memory Issues
+
+```bash
+# Check resource usage
+$B status
+
+# Restart to free memory
+$B restart
+
+# Close unnecessary tabs
+$B tabs
+$B closetab 2
+$B closetab 3
+```
+
+### Hung Commands
+
+```bash
+# If command hangs, restart server
+# (Ctrl+C to kill hung command)
+$B restart
+```
+
+<Warning>
+  Commands timeout after 15 seconds. If experiencing frequent timeouts, check network connectivity and page load performance.
+</Warning>

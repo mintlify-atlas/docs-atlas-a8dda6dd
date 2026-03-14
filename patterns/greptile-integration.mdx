@@ -1,0 +1,555 @@
+---
+title: 'Greptile Integration'
+description: 'Auto-triage PR review comments with intelligent classification and false positive detection'
+icon: 'robot'
+---
+
+## Overview
+
+[Greptile](https://greptile.com) is a YC company that reviews your PRs automatically. It catches real bugs — race conditions, security issues, things that pass CI and blow up in production.
+
+<Note>
+Greptile is good, but not every comment is a real issue. Some are false positives. Some flag things you already fixed three commits ago. Without a triage layer, the comments pile up and you start ignoring them — which defeats the purpose.
+</Note>
+
+**gstack solves this.** Both `/review` and `/ship` are Greptile-aware. They read Greptile's comments, classify each one, and take action:
+
+- **Valid issues** → added to critical findings, fixed before shipping
+- **Already-fixed issues** → auto-reply acknowledging the catch  
+- **False positives** → you confirm, reply goes out explaining why it's wrong
+
+The result: two-layer review. Greptile catches things asynchronously on the PR, then `/review` and `/ship` triage those findings as part of the normal workflow. Nothing falls through the cracks.
+
+## Setup
+
+Install Greptile on your GitHub repo at [greptile.com](https://greptile.com) — takes about 30 seconds.
+
+Once it's reviewing your PRs, gstack picks up its comments automatically. **No additional configuration needed.**
+
+## How It Works
+
+### Auto-Triage Workflow
+
+Both `/review` (Step 2.5) and `/ship` (Step 3.75) follow the same triage process:
+
+<Steps>
+  <Step title="Fetch Greptile comments">
+    Detect the PR and fetch comments from two GitHub API endpoints in parallel:
+
+    ```bash
+    REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+    PR_NUMBER=$(gh pr view --json number --jq '.number')
+
+    # Line-level review comments
+    gh api repos/$REPO/pulls/$PR_NUMBER/comments \
+      --jq '.[] | select(.user.login == "greptile-apps[bot]") | 
+            select(.position != null) | 
+            {id, path, line, body, html_url, source: "line-level"}' &
+
+    # Top-level PR comments  
+    gh api repos/$REPO/issues/$PR_NUMBER/comments \
+      --jq '.[] | select(.user.login == "greptile-apps[bot]") | 
+            {id, body, html_url, source: "top-level"}' &
+    wait
+    ```
+
+    The `position != null` filter automatically skips outdated comments from force-pushed code.
+
+    <Note>
+    If either API fails, no PR exists, or zero Greptile comments found → skip triage silently. The workflow works without Greptile.
+    </Note>
+  </Step>
+
+  <Step title="Check suppressions">
+    Read `~/.gstack/greptile-history.md` if it exists. Each line records a previous triage outcome:
+
+    ```
+    <date> | <repo> | <type:fp|fix|already-fixed> | <file-pattern> | <category>
+    ```
+
+    **Categories:** `race-condition`, `null-check`, `error-handling`, `style`, `type-safety`, `security`, `performance`, `correctness`, `other`
+
+    Match each fetched comment against entries where:
+    - `type == fp` (only suppress known false positives)
+    - `repo` matches current repo
+    - `file-pattern` matches the comment's file path
+    - `category` matches the issue type
+
+    Skip matched comments as **SUPPRESSED**.
+  </Step>
+
+  <Step title="Classify each comment">
+    For non-suppressed comments:
+
+    **Line-level comments:**
+    1. Read the file at `path:line` and surrounding context (±10 lines)
+    2. Cross-reference against full diff (`git diff origin/main`)
+    3. Check review checklist
+
+    **Top-level comments:**
+    1. Read full comment body
+    2. Cross-reference against diff and checklist
+
+    **Classification:**
+    - **VALID & ACTIONABLE** — real bug that exists in current code
+    - **VALID BUT ALREADY FIXED** — real issue addressed in subsequent commit (identify SHA)
+    - **FALSE POSITIVE** — misunderstands code, flags something handled elsewhere, or stylistic noise
+    - **SUPPRESSED** — filtered during suppressions check
+  </Step>
+
+  <Step title="Present findings to user">
+    Output summary:
+    ```
+    + N Greptile comments (X valid, Y fixed, Z FP)
+    ```
+
+    For each comment, show:
+    - Classification tag: `[VALID]`, `[FIXED]`, `[FALSE POSITIVE]`, `[SUPPRESSED]`
+    - File:line reference or `[top-level]`
+    - One-line body summary  
+    - Permalink URL (`html_url`)
+  </Step>
+</Steps>
+
+### Classification Examples
+
+From the README:
+
+```bash
+You:   /ship
+
+Claude: [syncs main, runs tests, pre-landing review...]
+
+        Greptile found 3 comments on this PR:
+
+        [VALID] app/services/payment_service.rb:47 — Race condition:
+        concurrent charges can double-debit. Recommend DB-level advisory
+        lock around the charge block.
+        → https://github.com/you/app/pull/42#discussion_r123
+
+        [ALREADY FIXED] app/models/user.rb:12 — Missing null check
+        on email before downcase.
+        → Already fixed in commit abc1234. Auto-replying.
+
+        [FALSE POSITIVE] lib/auth.rb:88 — "Token comparison should
+        use constant-time comparison." We already use
+        ActiveSupport::SecurityUtils.secure_compare here.
+        → https://github.com/you/app/pull/42#discussion_r125
+```
+
+## User Interaction Flows
+
+### Valid & Actionable
+
+For each valid issue, uses `AskUserQuestion`:
+
+<CodeGroup>
+```text Prompt
+Greptile comment: app/services/payment_service.rb:47
+Race condition: concurrent charges can double-debit.
+
+Recommended fix: Add DB-level advisory lock around charge block.
+
+Options:
+  A) Fix it now (recommended)
+  B) Acknowledge and ship anyway
+  C) It's a false positive — skip
+```
+
+```bash If A (Fix Now)
+# Apply the fix
+git add app/services/payment_service.rb
+git commit -m "fix: address Greptile review — advisory lock on concurrent charges"
+
+# Reply to comment
+gh api repos/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
+  -f body="Fixed in $(git rev-parse --short HEAD)."
+
+# Save to history
+echo "$(date +%Y-%m-%d) | $REPO | fix | payment_service.rb | race-condition" \
+  >> ~/.gstack/greptile-history.md
+
+# Re-run tests (Step 3 in /ship)
+```
+
+```bash If B (Acknowledge)
+# Continue shipping
+# Issue noted in PR body but not fixed
+```
+
+```bash If C (False Positive)
+# Reply explaining why
+gh api repos/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
+  -f body="This is already using SecureRandom for token generation (line 45). \
+            Constant-time comparison is applied at verification (line 88)."
+
+# Save to history (suppresses future similar comments)
+echo "$(date +%Y-%m-%d) | $REPO | fp | auth.rb | security" \
+  >> ~/.gstack/greptile-history.md
+```
+</CodeGroup>
+
+### Already Fixed
+
+No user interaction needed — auto-replies:
+
+```bash
+# Identify the fixing commit
+FIXING_COMMIT=$(git log --all --grep="null check" --oneline | head -1 | cut -d' ' -f1)
+
+# Reply to comment
+gh api repos/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
+  -f body="Good catch — already fixed in $FIXING_COMMIT."
+
+# Save to history
+echo "$(date +%Y-%m-%d) | $REPO | already-fixed | user.rb | null-check" \
+  >> ~/.gstack/greptile-history.md
+```
+
+### False Positive
+
+Uses `AskUserQuestion`:
+
+<CodeGroup>
+```text Prompt
+Greptile flagged lib/auth.rb:88 as missing constant-time comparison.
+
+Why it's wrong: We're already using ActiveSupport::SecurityUtils.secure_compare
+on line 88. This is the Rails standard for constant-time token comparison.
+
+Options:
+  A) Reply to Greptile explaining (recommended if clearly wrong)
+  B) Fix it anyway (if trivial)
+  C) Ignore silently
+```
+
+```bash If A (Reply)
+# Reply explaining the false positive
+gh api repos/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
+  -f body="This is already using secure_compare (line 88), which provides \
+            constant-time comparison. No change needed."
+
+# Save to history
+echo "$(date +%Y-%m-%d) | $REPO | fp | auth.rb | security" \
+  >> ~/.gstack/greptile-history.md
+```
+</CodeGroup>
+
+### Suppressed
+
+Skip silently — these are known false positives from previous triage.
+
+## Reply APIs
+
+Comments come from two different endpoints and require different reply methods:
+
+<Tabs>
+  <Tab title="Line-Level Comments">
+    From `repos/$REPO/pulls/$PR_NUMBER/comments`
+
+    **Reply:**
+    ```bash
+    gh api repos/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
+      -f body="<reply text>"
+    ```
+  </Tab>
+
+  <Tab title="Top-Level Comments">
+    From `repos/$REPO/issues/$PR_NUMBER/comments`
+
+    **Reply:**
+    ```bash
+    gh api repos/$REPO/issues/$PR_NUMBER/comments \
+      -f body="<reply text>"
+    ```
+
+    Note: Creates a new comment (not a threaded reply).
+  </Tab>
+</Tabs>
+
+<Warning>
+If a reply POST fails (PR closed, no write permission), warn and continue. Do not stop the workflow for a failed reply.
+</Warning>
+
+## History File Format
+
+Location: `~/.gstack/greptile-history.md`
+
+```markdown
+# Greptile Triage History
+
+Automatic false positive suppression and trend tracking.
+
+<date> | <repo> | <type> | <file-pattern> | <category>
+
+2026-03-13 | garrytan/myapp | fp | app/services/auth_service.rb | race-condition
+2026-03-13 | garrytan/myapp | fix | app/models/user.rb | null-check
+2026-03-13 | garrytan/myapp | already-fixed | lib/payments.rb | error-handling
+2026-03-14 | garrytan/otherapp | fp | config/routes.rb | style
+```
+
+**Types:**
+- `fp` — False positive (suppresses future similar comments)
+- `fix` — Fixed during triage
+- `already-fixed` — Fixed in earlier commit
+
+**Categories (fixed set):**
+`race-condition`, `null-check`, `error-handling`, `style`, `type-safety`, `security`, `performance`, `correctness`, `other`
+
+### Learning Over Time
+
+<Steps>
+  <Step title="First occurrence">
+    Greptile flags `auth.rb:88` for constant-time comparison.
+
+    You classify as false positive (already using `secure_compare`).
+
+    Entry added:
+    ```
+    2026-03-13 | garrytan/myapp | fp | auth.rb | security
+    ```
+  </Step>
+
+  <Step title="Subsequent occurrences">
+    Next PR touches `auth.rb` with same pattern.
+
+    Greptile comments again on the same issue.
+
+    Triage step matches against history:
+    - `type == fp` ✓
+    - `repo == garrytan/myapp` ✓  
+    - `file-pattern` matches `auth.rb` ✓
+    - `category == security` ✓
+
+    **Comment automatically suppressed.** No user interaction needed.
+  </Step>
+
+  <Step title="Trend tracking">
+    `/retro` reads the history file and computes Greptile's batting average:
+
+    ```
+    Signal ratio = (fix + already-fixed) / (fix + already-fixed + fp)
+    ```
+
+    Shows whether Greptile's signal-to-noise ratio is improving over time.
+  </Step>
+</Steps>
+
+## Integration with /review
+
+From `review/SKILL.md`:
+
+### Step 2.5: Check for Greptile comments
+
+```markdown
+Read `.claude/skills/review/greptile-triage.md` and follow the 
+fetch, filter, and classify steps.
+
+If no PR exists, `gh` fails, API returns an error, or there are 
+zero Greptile comments: Skip this step silently.
+
+If Greptile comments are found: Store the classifications — you 
+will need them in Step 5.
+```
+
+### Step 5: Output findings
+
+```markdown
+After outputting your own findings, if Greptile comments were 
+classified in Step 2.5:
+
++ N Greptile comments (X valid, Y fixed, Z FP)
+
+1. VALID & ACTIONABLE: Already included in CRITICAL findings
+2. FALSE POSITIVE: Present via AskUserQuestion (reply/fix/ignore)
+3. ALREADY FIXED: Auto-reply acknowledging, no user interaction
+4. SUPPRESSED: Skip silently
+```
+
+## Integration with /ship
+
+From `ship/SKILL.md`:
+
+### Step 3.75: Address Greptile review comments
+
+```markdown
+Read `.claude/skills/review/greptile-triage.md` and follow the 
+fetch, filter, and classify steps.
+
+If no PR exists or zero Greptile comments: Skip silently.
+
+For VALID & ACTIONABLE:
+- AskUserQuestion with fix recommendation
+- If user chooses A (fix): apply, commit, reply, save to history
+- If user chooses C (FP): reply explaining, save to history
+
+For ALREADY FIXED:
+- Auto-reply: "Good catch — already fixed in <sha>."
+- Save to history (type: already-fixed)
+
+For FALSE POSITIVE:
+- AskUserQuestion explaining why it's wrong
+- If user confirms: reply to Greptile, save to history (type: fp)
+
+After all resolved: If any fixes applied, re-run tests (Step 3)
+```
+
+## PR Body Integration
+
+Both `/review` and `/ship` include Greptile findings in output:
+
+```markdown
+## Greptile Review
+
+- [FIXED] payment_service.rb:47 — Race condition on concurrent charges
+  (applied advisory lock)
+- [FALSE POSITIVE] auth.rb:88 — Constant-time comparison already present
+- [ALREADY FIXED] user.rb:12 — Null check added in commit abc1234
+
+Greptile signal ratio: 67% (2 valid / 3 total)
+```
+
+If no Greptile comments found during Step 3.75:
+```markdown
+## Greptile Review
+
+No Greptile comments.
+```
+
+If no PR existed (skip case):
+```markdown
+(Greptile Review section omitted entirely)
+```
+
+## Retro Tracking
+
+The `/retro` skill reads `~/.gstack/greptile-history.md` and computes metrics:
+
+```bash
+# Fetch history (from retro/SKILL.md Step 1)
+cat ~/.gstack/greptile-history.md 2>/dev/null || true
+```
+
+**Metrics computed:**
+
+<CodeGroup>
+```yaml Signal Ratio
+# Entries within retro time window
+valid_count = count(type == 'fix') + count(type == 'already-fixed')
+false_positive_count = count(type == 'fp')
+
+signal_ratio = valid_count / (valid_count + false_positive_count)
+
+# Example: 8 fixes, 4 FPs → 8/(8+4) = 67%
+```
+
+```yaml Trend Over Time
+# Compare signal ratio week-over-week
+this_week_ratio = 67%
+last_week_ratio = 58%
+
+trend = +9pp (improving)
+```
+
+```yaml Category Breakdown
+# Which categories have most FPs?
+race-condition: 2 fix, 0 fp (100% signal)
+null-check: 3 fix, 1 fp (75% signal)  
+security: 1 fix, 2 fp (33% signal)
+style: 0 fix, 3 fp (0% signal)
+```
+</CodeGroup>
+
+**Retro output example:**
+
+```markdown
+## Greptile Performance
+
+Signal ratio: 67% (8 valid / 12 total)
+Trend: +9pp vs last week
+
+Top categories:
+- race-condition: 100% signal (2/2)
+- null-check: 75% signal (3/4)
+- security: 33% signal (1/3) ⚠️
+
+Recommendation: Review security category patterns — 
+high FP rate suggests overfitting.
+```
+
+## Best Practices
+
+<Warning>
+**Don't ignore Greptile comments.** The triage workflow is designed to be fast — most comments are handled in < 30 seconds total.
+</Warning>
+
+1. **Fix valid issues immediately** — If Greptile caught a real bug, apply the fix during `/review` or `/ship`. Don't defer.
+
+2. **Reply to false positives** — Helps Greptile learn. Also prevents future developers from wasting time on the same comment.
+
+3. **Review suppression history** — Periodically check `~/.gstack/greptile-history.md` for patterns. High FP rate in one category suggests overfitting.
+
+4. **Use `/retro` to track performance** — Signal ratio trending down? Time to review suppression rules or provide feedback to Greptile.
+
+5. **Keep history file clean** — Don't manually edit. Let the workflow append entries. Malformed lines are silently skipped.
+
+## Troubleshooting
+
+### Greptile comment not detected
+
+```bash
+# Check if Greptile bot commented
+gh api repos/$REPO/pulls/$PR_NUMBER/comments | \
+  jq '.[] | select(.user.login == "greptile-apps[bot]")'
+
+# Check top-level comments too  
+gh api repos/$REPO/issues/$PR_NUMBER/comments | \
+  jq '.[] | select(.user.login == "greptile-apps[bot]")'
+```
+
+If bot username is different, update the filter in `review/greptile-triage.md`.
+
+### False positive not suppressed
+
+```bash
+# Check history file
+grep "auth.rb" ~/.gstack/greptile-history.md
+
+# Verify entry format (must match exactly)
+# <YYYY-MM-DD> | <owner/repo> | fp | <file-pattern> | <category>
+```
+
+Common issues:
+- Wrong repo name (use `owner/repo` format)
+- Typo in file pattern (case-sensitive)
+- Wrong category (must match fixed set)
+
+### Reply failed
+
+```bash
+# Check permissions
+gh auth status
+
+# Try manual reply
+gh api repos/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
+  -f body="Test reply"
+```
+
+If PR is closed or you lack write permission, replies will fail. Workflow continues anyway.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Review Skill" icon="magnifying-glass" href="/skills/review">
+    Complete review workflow documentation
+  </Card>
+  <Card title="Ship Skill" icon="rocket" href="/skills/ship">
+    Full shipping workflow with Greptile triage
+  </Card>
+  <Card title="Retro Skill" icon="chart-line" href="/skills/retro">
+    Track Greptile performance over time
+  </Card>
+  <Card title="Greptile" icon="external-link" href="https://greptile.com">
+    Install Greptile on your repos
+  </Card>
+</CardGroup>

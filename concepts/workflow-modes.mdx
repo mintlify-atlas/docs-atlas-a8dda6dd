@@ -1,0 +1,383 @@
+---
+title: "Workflow Modes"
+description: "Eight cognitive modes that transform Claude Code from a generic assistant into a team of specialists"
+---
+
+## The Problem with Generic Prompting
+
+Most AI coding assistants operate in one undifferentiated mode. When you say "review my PR," the depth and rigor vary wildly each time. When you say "ship this," you get a long back-and-forth about what to do. The agent takes your request literally — it never asks if you're building the right thing.
+
+gstack solves this by giving Claude Code **explicit cognitive modes**. Instead of one mushy generic assistant, you get a team of specialists you can summon on demand.
+
+## Philosophy: Explicit Gears
+
+Planning is not review. Review is not shipping. Founder taste is not engineering rigor. If you blur all of that together, you usually get a mediocre blend of all four.
+
+gstack gives you **explicit gears** — you tell the model what kind of brain you want right now:
+
+- **Founder mode** (CEO taste, ambition, user empathy)
+- **Engineering manager mode** (architecture, diagrams, edge cases)
+- **Paranoid reviewer mode** (find bugs that pass CI but blow up in production)
+- **Release machine mode** (fast execution, zero talking)
+- **QA engineer mode** (browser-based testing, screenshots, evidence)
+- **Session manager mode** (cookie import, auth setup)
+- **Retrospective mode** (team-aware analysis, metrics, feedback)
+
+This is not a prompt pack for beginners. It is an operating system for people who ship.
+
+## The Eight Modes
+
+### 1. `/plan-ceo-review` — Founder / CEO Mode
+
+**What it does:** Rethink the problem. Find the 10-star product hiding inside the request.
+
+**When to use:** Start almost every feature here. Pressure-test whether you're building the right thing before locking in engineering direction.
+
+**Philosophy:**
+- The agent should ask "What is this product actually for?" before implementing
+- Don't take the request literally — find the version that feels inevitable, delightful, maybe even magical
+- Think with taste, ambition, user empathy, and a long time horizon
+
+**Real example from README:**
+
+```
+You:   I want to add seller photo upload to the listing app. 
+       Sellers should be able to upload a photo of their item 
+       and we create the listing from it.
+
+You:   /plan-ceo-review
+
+Claude: "Photo upload" is not the feature. The real job is 
+        helping sellers create listings that actually sell. 
+        Here's what the 10-star version looks like: 
+        auto-identify the product from the photo, pull specs 
+        and pricing comps from the web, draft the title and 
+        description, suggest the best hero image...
+```
+
+**Three modes within the mode:**
+- **SCOPE EXPANSION:** Build the cathedral. Push scope UP. What would make this 10x better for 2x the effort?
+- **HOLD SCOPE:** Accepted scope, maximum rigor. Make it bulletproof.
+- **SCOPE REDUCTION:** Find the minimum viable version. Be ruthless.
+
+<Info>
+The skill uses **Brian Chesky mode** as a mental model — rethink from the user's point of view, find what's inevitable and delightful.
+</Info>
+
+---
+
+### 2. `/plan-eng-review` — Eng Manager / Tech Lead Mode
+
+**What it does:** Lock in architecture, data flow, diagrams, edge cases, and tests.
+
+**When to use:** After product direction is locked (usually after `/plan-ceo-review`). Before writing any code.
+
+**Philosophy:**
+- Make the idea buildable, not bigger or smaller
+- Diagrams are mandatory — ASCII art for every non-trivial flow
+- Nail the technical spine that can carry the product vision
+
+**What it reviews:**
+- Architecture and system boundaries
+- Data flow (including nil, empty, and error paths)
+- State transitions and failure modes
+- Edge cases and trust boundaries
+- Test coverage matrix
+
+**Real example from README:**
+
+```
+You:   /plan-eng-review
+
+Claude: [Architecture diagram, state machine for 
+        upload → classify → enrich → draft pipeline, 
+        async job boundaries, failure modes, test matrix]
+```
+
+<Tip>
+Diagrams force hidden assumptions into the open. They make hand-wavy planning much harder.
+</Tip>
+
+---
+
+### 3. `/review` — Paranoid Staff Engineer Mode
+
+**What it does:** Find the bugs that pass CI but blow up in production. Triages Greptile review comments.
+
+**When to use:** After implementation, before shipping. When tests are green but you want structural audit.
+
+**Philosophy:**
+- Passing tests don't mean the branch is safe
+- Ask "What can still break?" not "Does this look good?"
+- Structural audit, not style nitpicks
+
+**What it finds:**
+- N+1 queries and stale reads
+- Race conditions
+- Bad trust boundaries
+- Missing indexes
+- Escaping bugs and broken invariants
+- Bad retry logic
+- Tests that pass while missing the real failure mode
+
+**Real example from README:**
+
+```
+You:   /review
+
+Claude: Race condition: two tabs can overwrite cover-photo 
+        selection. Trust boundary: pulling web data into 
+        draft generation creates a prompt injection vector. 
+        Missing: orphan cleanup for failed uploads.
+```
+
+<Note>
+Integrates with [Greptile](https://greptile.com) for automated PR review. Triages comments into valid issues, already-fixed, and false positives.
+</Note>
+
+---
+
+### 4. `/ship` — Release Engineer Mode
+
+**What it does:** Sync main, run tests, resolve Greptile reviews, push, open PR.
+
+**When to use:** For a ready branch, not for deciding what to build. When the interesting work is done and only boring release work remains.
+
+**Philosophy:**
+- Stop behaving like a brainstorm partner
+- Start behaving like a disciplined release engineer
+- Execute the final mile with zero talking
+
+**What it handles:**
+- Syncing with main
+- Running tests
+- Checking branch state
+- Updating changelog/versioning
+- Pushing and creating/updating PR
+
+**Real example from README:**
+
+```
+You:   /ship
+
+Claude: [Syncs main, runs tests, pushes branch, opens PR — 
+        6 tool calls, done]
+```
+
+<Info>
+A lot of branches die when only boring release work is left. Humans procrastinate that part. AI shouldn't.
+</Info>
+
+---
+
+### 5. `/browse` — QA Engineer Mode
+
+**What it does:** Give the agent eyes. It logs in, clicks through your app, takes screenshots, catches breakage.
+
+**When to use:** Testing features, verifying deployments, dogfooding user flows, filing bugs with evidence.
+
+**Philosophy:**
+- Before this, the agent was half blind — guessing about UI state, auth flows, console errors
+- Now it can just go look
+- Full QA pass in 60 seconds instead of manual clicking
+
+**Key capabilities:**
+- Navigate pages and interact with elements (`@e1`, `@e2` refs)
+- Take screenshots and annotated screenshots
+- Check console errors and network requests
+- Test forms, uploads, dialogs
+- Verify responsive layouts
+
+**Real example from README:**
+
+```
+You:   /browse staging.myapp.com — log in, test the signup 
+       flow, and check every page I changed in this branch
+
+Claude: [18 tool calls, ~60 seconds]
+        > browse goto https://staging.myapp.com/signup
+        > browse snapshot -i
+        > browse fill @e2 "test@example.com"
+        > browse fill @e3 "password123"
+        > browse click @e5
+        ...
+        All 4 pages load correctly. No console errors.
+```
+
+<Tip>
+The browser runs as a persistent daemon (~100-200ms per command after first start). Cookies and sessions carry over between commands.
+</Tip>
+
+---
+
+### 6. `/qa` — QA Lead Mode
+
+**What it does:** Systematic QA testing. Auto-analyzes your diff, identifies affected pages, and tests them.
+
+**When to use:** On a feature branch after coding. For smoke tests, full exploration, or regression testing.
+
+**Philosophy:**
+- `/browse` gives eyes, `/qa` gives methodology
+- Figure out what to test from the code you changed
+- No manual test plan needed
+
+**Four modes:**
+- **Diff-aware** (automatic): Reads `git diff main`, identifies affected routes, tests them
+- **Full**: Systematic exploration of entire app (5-15 minutes)
+- **Quick** (`--quick`): 30-second smoke test (homepage + top 5 pages)
+- **Regression** (`--regression baseline.json`): Diff against previous baseline
+
+**Real example from README:**
+
+```
+You:   /qa
+
+Claude: Analyzing branch diff... 8 files changed, 3 routes affected.
+        [Tests /listings/new, /listings/:id, /api/listings]
+        All 3 routes working. Upload + enrichment flow 
+        passes end to end.
+```
+
+---
+
+### 7. `/setup-browser-cookies` — Session Manager Mode
+
+**What it does:** Import cookies from your real browser (Comet, Chrome, Arc, Brave, Edge) into the headless session.
+
+**When to use:** Before testing authenticated pages with `/qa` or `/browse`. One-time setup per domain.
+
+**Philosophy:**
+- Don't manually log in through headless browser every time
+- Import real sessions directly from daily browser
+- Test authenticated pages without friction
+
+**How it works:**
+- Auto-detects installed Chromium browsers
+- Decrypts cookies via macOS Keychain
+- Interactive picker UI or direct domain import
+- Cookie values never displayed
+
+**Real example from README:**
+
+```
+You:   /setup-browser-cookies staging.myapp.com
+
+Claude: Imported 8 cookies for staging.myapp.com from Chrome.
+```
+
+---
+
+### 8. `/retro` — Engineering Manager Mode
+
+**What it does:** Team-aware retrospective. Deep-dive on your work + per-person praise and growth opportunities for every contributor.
+
+**When to use:** End of week. When you want data, not vibes.
+
+**Philosophy:**
+- Analyze commit history, work patterns, shipping velocity
+- Give you the deepest treatment, then break down every contributor
+- The kind of feedback you'd give in a 1:1
+
+**What it computes:**
+- Commits, LOC, test ratio, PR sizes, fix ratio
+- Coding sessions from commit timestamps
+- Hotspot files, shipping streaks, biggest ship of the week
+- Team breakdown with praise and growth opportunities per person
+
+**Real example from README:**
+
+```
+You:   /retro
+
+Claude: Week of Mar 1: 47 commits (3 contributors), 
+        3.2k LOC, 38% tests, 12 PRs, peak: 10pm | Streak: 47d
+        
+        ## Your Week
+        32 commits, +2.4k LOC, 41% tests. Peak hours: 9-11pm.
+        Biggest ship: cookie import system...
+        
+        ## Team Breakdown
+        ### Alice
+        12 commits focused on app/services/. Every PR under 
+        200 LOC — disciplined. Opportunity: test ratio at 12%...
+```
+
+<Info>
+Saves JSON snapshots to `.context/retros/` for trend tracking. Run `/retro compare` to see this week vs last week.
+</Info>
+
+---
+
+## One Feature, Five Modes: Real Workflow
+
+Here's how the modes compose in practice:
+
+```
+1. Start in plan mode, describe the feature
+   "I want to add seller photo upload..."
+
+2. /plan-ceo-review
+   → Rethinks the problem
+   → Proposes auto-identification, enrichment, smart drafting
+   → Locks product direction
+
+3. /plan-eng-review  
+   → Architecture diagram
+   → State machine for upload → classify → enrich → draft
+   → Async job boundaries, failure modes, test matrix
+
+4. Exit plan mode, implement
+
+5. /review
+   → Finds race condition on cover photo selection
+   → Finds prompt injection vector in web data
+   → Finds missing orphan cleanup
+
+6. Fix issues
+
+7. /ship
+   → Syncs main, runs tests, pushes, opens PR
+
+8. /qa
+   → Analyzes diff: 8 files, 3 routes affected
+   → Tests all 3 routes end-to-end
+   → Reports: all working, no console errors
+
+9. /setup-browser-cookies staging.myapp.com
+
+10. /qa https://staging.myapp.com --quick
+    → 30-second smoke test
+    → Health Score: 91/100, 1 medium issue
+```
+
+## Why Explicit Modes Win
+
+### Consistency
+Instead of "review my PR" giving random depth each time, `/review` always applies the same paranoid structural audit.
+
+### Context Efficiency
+The model loads only the instructions it needs right now. Review mode doesn't load CEO ideation prompts.
+
+### Mental Clarity
+You know what gear you're in. The model knows what brain to use. No ambiguity.
+
+### Composability
+Modes are designed to chain: CEO review → Eng review → Implementation → Review → Ship → QA.
+
+### Parallel Execution
+With [Conductor](https://conductor.build), run 10 sessions with different modes simultaneously:
+- One running `/qa` on staging
+- Another doing `/review` on a PR  
+- A third implementing a feature
+- Seven more on other branches
+
+Each workspace gets isolated browser instances automatically (separate Chromium process, cookies stored in `.gstack/` per project root).
+
+<Note>
+**Garry Tan:** "I built gstack because I do not want AI coding tools stuck in one mushy mode. I want explicit gears. These skills let me tell the model what kind of brain I want right now."
+</Note>
+
+## Further Reading
+
+- [Browser Automation](/concepts/browser-automation) — How `/browse` and `/qa` work under the hood
+- [Skill System](/concepts/skill-system) — How Claude Code discovers and loads skills

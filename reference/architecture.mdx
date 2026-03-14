@@ -1,0 +1,208 @@
+---
+title: Architecture
+description: Internal design and technical decisions behind gstack's browser daemon
+---
+
+## Overview
+
+gstack is built around a persistent browser daemon that provides sub-second latency for AI agents. The core architecture consists of three layers:
+
+```
+Claude Code                     gstack
+─────────                      ──────
+                               ┌──────────────────────┐
+  Tool call: $B snapshot -i    │  CLI (compiled binary)│
+  ─────────────────────────→   │  • reads state file   │
+                               │  • POST /command      │
+                               │    to localhost:PORT   │
+                               └──────────┬───────────┘
+                                          │ HTTP
+                               ┌──────────▼───────────┐
+                               │  Server (Bun.serve)   │
+                               │  • dispatches command  │
+                               │  • talks to Chromium   │
+                               │  • returns plain text  │
+                               └──────────┬───────────┘
+                                          │ CDP
+                               ┌──────────▼───────────┐
+                               │  Chromium (headless)   │
+                               │  • persistent tabs     │
+                               │  • cookies carry over  │
+                               │  • 30min idle timeout  │
+                               └───────────────────────┘
+```
+
+**First call:** ~3 seconds (launches Chromium + HTTP server)  
+**Every call after:** ~100-200ms (HTTP POST → command execution)
+
+## The Daemon Model
+
+### Why persistent?
+
+Launching Chromium from scratch takes 2-3 seconds. For a single screenshot, that's acceptable. For a QA session with 20+ commands, it's 40+ seconds of overhead — plus you lose all state between commands.
+
+The daemon model provides:
+
+- **Persistent state**: Log in once, stay logged in. Open tabs persist. localStorage and cookies carry over.
+- **Sub-second commands**: After initial startup, every command is just an HTTP POST with ~100-200ms round-trip.
+- **Automatic lifecycle**: Server auto-starts on first use, auto-shuts down after 30 minutes idle.
+
+<Info>
+The bottleneck is always Chromium, not the CLI or server. Even with Bun's fast startup (~1ms), the real win is avoiding repeated browser launches.
+</Info>
+
+### State File
+
+The server writes `.gstack/browse.json` (atomic write via temp file + rename, mode `0o600`):
+
+```json
+{
+  "pid": 12345,
+  "port": 34567,
+  "token": "uuid-v4",
+  "startedAt": "2026-03-14T09:00:00.000Z",
+  "binaryVersion": "abc123"
+}
+```
+
+The CLI reads this file to find the running server. If the file is missing, stale, or the PID is dead, the CLI spawns a new server automatically.
+
+**State file location** (in order of precedence):
+1. `BROWSE_STATE_FILE` environment variable (if set)
+2. `<git-root>/.gstack/browse.json` (git repository detected)
+3. `<cwd>/.gstack/browse.json` (fallback)
+
+Refer to [configuration.mdx](/reference/configuration) for more details on directory structure.
+
+### Port Selection
+
+The server binds to a **random port between 10000-60000** with up to 5 retry attempts on collision.
+
+This design allows 10+ Conductor workspaces to each run their own browse daemon with zero configuration and zero port conflicts. The old approach (scanning 9400-9409) broke constantly in multi-workspace setups.
+
+<Note>
+For debugging, you can override the port with the `BROWSE_PORT` environment variable. This disables random selection and uses your specified port.
+</Note>
+
+### Version Auto-Restart
+
+The build process writes `git rev-parse HEAD` to `browse/dist/.version`. On each CLI invocation:
+
+1. CLI reads its embedded version hash
+2. Compares against the running server's `binaryVersion` in the state file
+3. If they don't match, kills the old server and starts a new one
+
+This prevents the "stale binary" class of bugs entirely. Rebuild the binary → next command picks it up automatically.
+
+## Why Bun
+
+Node.js would work, but Bun is better here for four reasons:
+
+### 1. Compiled Binaries
+
+`bun build --compile` produces a single ~58MB executable. No `node_modules` at runtime, no `npx`, no PATH configuration. The binary just runs.
+
+This matters because gstack installs into `~/.claude/skills/` where users don't expect to manage a Node.js project.
+
+### 2. Native SQLite
+
+Cookie decryption reads Chromium's SQLite cookie database directly. Bun has `new Database()` built in — no `better-sqlite3`, no native addon compilation, no gyp.
+
+One less thing that breaks on different machines.
+
+### 3. Native TypeScript
+
+The server runs as `bun run server.ts` during development. No compilation step, no `ts-node`, no source maps to debug.
+
+The compiled binary is for deployment; source files are for development.
+
+### 4. Built-in HTTP Server
+
+`Bun.serve()` is fast, simple, and doesn't need Express or Fastify. The server handles ~10 routes total. A framework would be overhead.
+
+## Command Dispatch
+
+Commands are categorized by side effects:
+
+- **READ** (`text`, `html`, `links`, `console`, `cookies`, ...): No mutations. Safe to retry. Returns page state.
+- **WRITE** (`goto`, `click`, `fill`, `press`, ...): Mutates page state. Not idempotent.
+- **META** (`snapshot`, `screenshot`, `tabs`, `chain`, ...): Server-level operations that don't fit neatly into read/write.
+
+The server uses these categories for dispatch routing:
+
+```typescript
+if (READ_COMMANDS.has(cmd))  → handleReadCommand(cmd, args, bm)
+if (WRITE_COMMANDS.has(cmd)) → handleWriteCommand(cmd, args, bm)
+if (META_COMMANDS.has(cmd))  → handleMetaCommand(cmd, args, bm, shutdown)
+```
+
+See `browse/src/commands.ts` for the single source of truth on all commands.
+
+## Logging Architecture
+
+Three ring buffers (50,000 entries each, O(1) push):
+
+```
+Browser events → CircularBuffer (in-memory) → Async flush to .gstack/*.log
+```
+
+**Buffers:**
+- Console messages (`browse-console.log`)
+- Network requests (`browse-network.log`)
+- Dialog events (`browse-dialog.log`)
+
+Flushing happens every 1 second — the server appends only new entries since the last flush. This means:
+
+- HTTP request handling is never blocked by disk I/O
+- Logs survive server crashes (up to 1 second of data loss)
+- Memory is bounded (50K entries × 3 buffers)
+- Disk files are append-only, readable by external tools
+
+The `console`, `network`, and `dialog` commands read from the in-memory buffers, not disk. Disk files are for post-mortem debugging.
+
+## Error Philosophy
+
+Errors are for AI agents, not humans. Every error message must be actionable:
+
+<Warning>
+**Bad:** "Element not found"  
+**Good:** "Element not found or not interactable. Run `snapshot -i` to see available elements."
+</Warning>
+
+Playwright's native errors are rewritten through `wrapError()` to strip internal stack traces and add guidance. The agent should be able to read the error and know what to do next without human intervention.
+
+### Examples
+
+| Native Error | Rewritten Error |
+|--------------|----------------|
+| `locator.click: Timeout 30000ms exceeded` | `Element not found or not interactable within timeout. Check your selector or run 'snapshot' for fresh refs.` |
+| `page.goto: Timeout 30000ms exceeded` | `Page navigation timed out. The URL may be unreachable or the page may be loading slowly.` |
+| `Selector resolved to 5 elements` | `Selector matched multiple elements. Be more specific or use @refs from 'snapshot'.` |
+
+See `browse/src/server.ts:196` for the `wrapError()` implementation.
+
+## Crash Recovery
+
+The server doesn't try to self-heal. If Chromium crashes:
+
+1. `browser.on('disconnected')` event fires
+2. Server logs error message
+3. Server exits with code 1
+4. CLI detects dead server on next command
+5. CLI auto-restarts server
+
+This is simpler and more reliable than trying to reconnect to a half-dead browser process. Failures are loud, not hidden.
+
+## What's Intentionally Not Here
+
+- **No WebSocket streaming**: HTTP request/response is simpler, debuggable with curl, and fast enough. Streaming would add complexity for marginal benefit.
+- **No MCP protocol**: MCP adds JSON schema overhead per request and requires a persistent connection. Plain HTTP + plain text output is lighter on tokens and easier to debug.
+- **No multi-user support**: One server per workspace, one user. The token auth is defense-in-depth, not multi-tenancy.
+- **No Windows/Linux cookie decryption**: macOS Keychain is the only supported credential store. Linux (GNOME Keyring/kwallet) and Windows (DPAPI) are architecturally possible but not implemented.
+- **No iframe support**: Playwright can handle iframes but the ref system doesn't cross frame boundaries yet. This is the most-requested missing feature.
+
+## Related Pages
+
+- [Snapshot System](/reference/snapshot-system) — How `@e` refs work
+- [Security](/reference/security) — Auth, cookies, and threat model
+- [Configuration](/reference/configuration) — State files and environment variables

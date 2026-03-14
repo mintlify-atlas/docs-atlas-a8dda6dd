@@ -1,0 +1,295 @@
+---
+title: Tab Commands
+description: Manage browser tabs, switch between tabs, and control multi-tab workflows
+---
+
+Tab commands allow you to manage multiple browser tabs within a single browse session.
+
+## tabs
+
+List all open tabs.
+
+### Syntax
+
+```bash
+$B tabs
+```
+
+### Examples
+
+```bash
+# List current tabs
+$B tabs
+
+# After opening multiple tabs
+$B newtab https://example.com
+$B newtab https://google.com
+$B tabs
+```
+
+### Return Value
+
+Returns a list of tabs with their IDs, URLs, and titles:
+
+```
+[1] https://example.com - Example Domain (active)
+[2] https://google.com - Google
+[3] about:blank - 
+```
+
+### Common Use Cases
+
+- Viewing all open tabs
+- Finding tab IDs for switching
+- Debugging multi-tab workflows
+- Verifying tab state
+
+<Note>
+  Tab IDs are assigned sequentially and remain stable during the session.
+</Note>
+
+---
+
+## tab
+
+Switch to a specific tab.
+
+### Syntax
+
+```bash
+$B tab <id>
+```
+
+<ParamField path="id" type="number" required>
+  The tab ID from the `tabs` command output.
+</ParamField>
+
+### Examples
+
+```bash
+# Open multiple tabs and switch between them
+$B goto https://example.com
+$B newtab https://google.com
+$B tabs  # Shows [1] and [2]
+$B tab 1  # Switch back to first tab
+
+# Multi-tab workflow
+$B tab 2
+$B fill "#search" "query"
+$B tab 1
+$B click "#submit"
+```
+
+### Return Value
+
+Returns success and activates the specified tab, or error if tab ID not found.
+
+### Common Use Cases
+
+- Switching between tabs
+- Multi-tab testing workflows
+- Comparing pages side-by-side
+- Testing cross-tab interactions
+
+<Warning>
+  Switching tabs invalidates any @e or @c refs from snapshots. Run `snapshot` again after switching.
+</Warning>
+
+```bash
+# Example: Compare two pages
+$B goto https://staging.example.com
+$B screenshot /tmp/staging.png
+$B newtab https://example.com
+$B screenshot /tmp/prod.png
+$B tabs  # Verify both tabs open
+```
+
+---
+
+## newtab
+
+Open a new browser tab.
+
+### Syntax
+
+```bash
+$B newtab [url]
+```
+
+<ParamField path="url" type="string">
+  Optional URL to navigate to. If omitted, opens about:blank.
+</ParamField>
+
+### Examples
+
+```bash
+# Open blank tab
+$B newtab
+
+# Open tab with URL
+$B newtab https://example.com
+
+# Open multiple tabs for testing
+$B newtab https://staging.example.com
+$B newtab https://example.com
+$B newtab https://dev.example.com
+$B tabs  # See all three tabs
+
+# Open tab and interact
+$B newtab https://app.com/login
+$B fill "#username" "test"
+$B fill "#password" "pass"
+$B click "#submit"
+```
+
+### Return Value
+
+Returns the new tab ID and switches focus to the new tab.
+
+### Common Use Cases
+
+- Opening multiple test environments
+- Testing multi-tab workflows
+- Comparing different pages
+- Testing cross-origin scenarios
+
+<Tip>
+  The new tab automatically becomes active. Use `tab <id>` to switch back to previous tabs.
+</Tip>
+
+```bash
+# Example: Test across environments
+$B newtab https://dev.example.com
+$B screenshot /tmp/dev.png
+$B newtab https://staging.example.com
+$B screenshot /tmp/staging.png
+$B newtab https://example.com
+$B screenshot /tmp/prod.png
+```
+
+---
+
+## closetab
+
+Close a browser tab.
+
+### Syntax
+
+```bash
+$B closetab [id]
+```
+
+<ParamField path="id" type="number">
+  Optional tab ID to close. If omitted, closes the currently active tab.
+</ParamField>
+
+### Examples
+
+```bash
+# Close current tab
+$B closetab
+
+# Close specific tab by ID
+$B tabs  # Shows [1], [2], [3]
+$B closetab 2  # Closes tab 2
+
+# Open, test, and close
+$B newtab https://example.com
+$B screenshot /tmp/test.png
+$B closetab  # Close the tab we just opened
+
+# Clean up after multi-tab test
+$B newtab https://test1.com
+$B newtab https://test2.com
+$B tabs
+$B closetab 2
+$B closetab 3
+```
+
+### Return Value
+
+Returns success and switches to another open tab, or error if trying to close the last remaining tab.
+
+### Common Use Cases
+
+- Cleaning up test tabs
+- Managing tab lifecycle
+- Preventing tab buildup during long sessions
+- Testing tab close behavior
+
+<Warning>
+  Cannot close the last remaining tab. At least one tab must remain open.
+</Warning>
+
+<Note>
+  When closing the active tab, focus automatically switches to another open tab.
+</Note>
+
+## Multi-Tab Workflows
+
+Here are common patterns for working with multiple tabs:
+
+### Compare Environments
+
+```bash
+# Open all environments in tabs
+$B goto https://dev.example.com
+$B newtab https://staging.example.com
+$B newtab https://example.com
+
+# Test each environment
+$B tabs
+$B tab 1
+$B text | grep "Version"
+$B tab 2
+$B text | grep "Version"
+$B tab 3
+$B text | grep "Version"
+```
+
+### Cross-Tab Testing
+
+```bash
+# Test that login persists across tabs
+$B goto https://app.com/login
+$B fill "#username" "test"
+$B fill "#password" "pass"
+$B click "#submit"
+$B wait ".dashboard"
+
+# Open new tab - should be logged in
+$B newtab https://app.com/profile
+$B is visible ".user-profile"  # Verify logged in
+```
+
+### Parallel Screenshots
+
+```bash
+# Capture multiple pages quickly
+$B goto https://example.com
+$B newtab https://example.com/about
+$B newtab https://example.com/contact
+
+$B tab 1
+$B screenshot /tmp/home.png
+$B tab 2
+$B screenshot /tmp/about.png
+$B tab 3
+$B screenshot /tmp/contact.png
+```
+
+### Tab Cleanup Pattern
+
+```bash
+# Clean slate for new test
+$B tabs
+# Close all but first tab
+$B closetab 2
+$B closetab 3
+$B closetab 4
+$B tabs  # Should show only [1]
+```
+
+<Tip>
+  Use `tabs` frequently to verify tab state and get current tab IDs.
+</Tip>

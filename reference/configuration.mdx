@@ -1,0 +1,354 @@
+---
+title: Configuration
+description: State files, environment variables, and directory structure
+---
+
+## Directory Structure
+
+gstack stores all runtime state in the `.gstack/` directory:
+
+```
+<project-root>/
+├── .gstack/
+│   ├── browse.json           # Server state (PID, port, token)
+│   ├── browse-console.log    # Console messages
+│   ├── browse-network.log    # Network requests
+│   └── browse-dialog.log     # Alert/confirm/prompt events
+├── .gitignore                # Add .gstack/ here
+└── ...
+```
+
+<Warning>
+**Add `.gstack/` to your `.gitignore`** to avoid committing sensitive state files, logs, and auth tokens.
+</Warning>
+
+## State File Location
+
+The state file path is resolved in order of precedence:
+
+1. **`BROWSE_STATE_FILE` environment variable** (if set)
+   ```bash
+   export BROWSE_STATE_FILE=/tmp/browse-test.json
+   $B goto https://example.com
+   ```
+
+2. **Git repository root** (detected via `git rev-parse --show-toplevel`)
+   ```bash
+   # If you're in a git repo:
+   <git-root>/.gstack/browse.json
+   ```
+
+3. **Current working directory** (fallback)
+   ```bash
+   # If not in a git repo:
+   <cwd>/.gstack/browse.json
+   ```
+
+This design means:
+- Each git repository gets its own isolated browse daemon
+- Multiple Conductor workspaces can run browse daemons without conflict
+- Tests can set `BROWSE_STATE_FILE` for full isolation
+
+See `browse/src/config.ts:49` for the resolution logic.
+
+## State File Format
+
+The state file is JSON with the following schema:
+
+```json
+{
+  "pid": 12345,
+  "port": 34567,
+  "token": "550e8400-e29b-41d4-a716-446655440000",
+  "startedAt": "2026-03-14T09:00:00.000Z",
+  "serverPath": "/path/to/browse/src/server.ts",
+  "binaryVersion": "abc123def456"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pid` | number | Server process ID (used to detect stale servers) |
+| `port` | number | HTTP server port (random 10000-60000) |
+| `token` | string | Bearer token for authentication (UUID v4) |
+| `startedAt` | string | ISO 8601 timestamp of server start |
+| `serverPath` | string | Absolute path to `server.ts` (for debugging) |
+| `binaryVersion` | string | Git SHA of the binary (for auto-restart on version mismatch) |
+
+**File permissions:** `0o600` (owner-only read/write)
+
+### Why Git SHA in State File?
+
+The CLI compares its embedded version hash against the running server's `binaryVersion`. If they don't match:
+
+1. CLI kills the old server
+2. CLI spawns a new server with the current binary
+
+This prevents the "stale binary" bug where you rebuild the binary but the old server is still running.
+
+## Log Files
+
+Three log files are written asynchronously (flushed every 1 second):
+
+### `browse-console.log`
+
+All `console.log`, `console.error`, `console.warn` messages from the page:
+
+```
+[2026-03-14T09:00:01.234Z] [log] Button clicked
+[2026-03-14T09:00:02.456Z] [error] Uncaught TypeError: Cannot read property 'foo' of undefined
+[2026-03-14T09:00:03.789Z] [warn] Deprecated API usage
+```
+
+Read with:
+```bash
+$B console
+# Or read the file directly:
+tail -f .gstack/browse-console.log
+```
+
+### `browse-network.log`
+
+All HTTP requests/responses:
+
+```
+[2026-03-14T09:00:01.234Z] GET https://example.com → 200 (1234ms, 56789B)
+[2026-03-14T09:00:02.456Z] POST https://api.example.com/login → 200 (567ms, 123B)
+[2026-03-14T09:00:03.789Z] GET https://cdn.example.com/image.png → 200 (234ms, 45678B)
+```
+
+Read with:
+```bash
+$B network
+# Or read the file directly:
+tail -f .gstack/browse-network.log
+```
+
+### `browse-dialog.log`
+
+All `alert()`, `confirm()`, `prompt()` dialogs:
+
+```
+[2026-03-14T09:00:01.234Z] [alert] "Welcome to the site!" → accepted
+[2026-03-14T09:00:02.456Z] [confirm] "Are you sure?" → accepted
+[2026-03-14T09:00:03.789Z] [prompt] "Enter your name:" → accepted "Alice"
+```
+
+Read with:
+```bash
+$B dialog
+# Or read the file directly:
+tail -f .gstack/browse-dialog.log
+```
+
+<Info>
+Logs are **cleared on server restart**. If you need persistent logs, copy them before stopping the server.
+</Info>
+
+## Environment Variables
+
+### `BROWSE_STATE_FILE`
+
+**Purpose:** Override the default state file location.  
+**Default:** `<git-root>/.gstack/browse.json` or `<cwd>/.gstack/browse.json`  
+**Usage:**
+
+```bash
+export BROWSE_STATE_FILE=/tmp/browse-test.json
+$B goto https://example.com
+```
+
+**When to use:**
+- Running tests in isolation (each test gets its own state file)
+- Multiple browse daemons in the same directory
+- Debugging without affecting the main state file
+
+**Security note:** The state file contains the auth token with mode `0o600`. Ensure the parent directory is not world-writable.
+
+### `BROWSE_PORT`
+
+**Purpose:** Override random port selection.  
+**Default:** Random port between 10000-60000  
+**Usage:**
+
+```bash
+export BROWSE_PORT=34567
+$B goto https://example.com
+```
+
+**When to use:**
+- Debugging with a fixed port (e.g., for curl testing)
+- Avoiding port conflicts with known services
+
+**When NOT to use:**
+- Production environments (random ports are safer)
+- Multi-workspace setups (defeats the purpose of random ports)
+
+<Warning>
+If the specified port is in use, the server will fail to start. Use random ports unless you have a specific reason not to.
+</Warning>
+
+### `BROWSE_IDLE_TIMEOUT`
+
+**Purpose:** Set the idle timeout in milliseconds before auto-shutdown.  
+**Default:** `1800000` (30 minutes)  
+**Usage:**
+
+```bash
+export BROWSE_IDLE_TIMEOUT=600000  # 10 minutes
+$B goto https://example.com
+```
+
+**When to use:**
+- CI environments (shorter timeout to free resources)
+- Long-running QA sessions (longer timeout to avoid restarts)
+
+**How it works:**
+- Every command resets the idle timer
+- If no commands are run for `BROWSE_IDLE_TIMEOUT` ms, the server shuts down
+- The CLI auto-restarts the server on the next command
+
+### `ANTHROPIC_API_KEY`
+
+**Purpose:** API key for LLM-based tests (Tier 3 evals).  
+**Default:** None (tests are skipped if not set)  
+**Usage:**
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+bun run test:eval
+```
+
+**Not used by the browse daemon.** Only used by test scripts.
+
+## Project-Local vs Global State
+
+gstack uses **project-local state** by default:
+
+- Each git repository has its own `.gstack/` directory
+- Cookies, logs, and server state are isolated per project
+- No global `~/.gstack/` directory
+
+**Rationale:**
+- Prevents cookie leakage between projects
+- Allows different projects to run different browse versions
+- Easier to clean up (delete `.gstack/` when done)
+
+**If you want global state:**
+
+```bash
+# In your shell RC file (.bashrc, .zshrc, etc.):
+export BROWSE_STATE_FILE=~/.gstack/browse.json
+
+# All browse commands will share the same server
+$B goto https://example.com
+```
+
+<Note>
+Global state is **not recommended** for multi-project workflows. Cookies from one project may leak to another.
+</Note>
+
+## File Paths in Commands
+
+Commands that accept file paths enforce whitelist restrictions:
+
+**Allowed directories:**
+- `/tmp/`
+- Current working directory (`process.cwd()`)
+
+**Examples:**
+
+```bash
+# ✅ Allowed
+$B screenshot /tmp/page.png
+$B screenshot ./screenshots/page.png
+$B pdf /tmp/invoice.pdf
+
+# ❌ Blocked
+$B screenshot ~/Documents/page.png  # Home directory
+$B pdf /etc/passwd                  # System directory
+```
+
+**Affected commands:**
+- `screenshot [path]`
+- `pdf [path]`
+- `responsive [prefix]` (saves to `/tmp/<prefix>-{mobile,tablet,desktop}.png`)
+- `eval <file>` (must be in `/tmp` or cwd)
+- `cookie-import <json>` (must be in `/tmp` or cwd)
+- `snapshot -o <path>` (annotated screenshot output)
+
+See [security.mdx](/reference/security#file-path-restrictions) for details.
+
+## Cleaning Up
+
+To remove all gstack state:
+
+```bash
+# Stop the server
+$B stop
+
+# Delete the state directory
+rm -rf .gstack/
+```
+
+**When to clean up:**
+- After finishing a QA session
+- Before committing (if you forgot to add `.gstack/` to `.gitignore`)
+- To force a fresh server start with no cached state
+
+<Warning>
+Deleting `.gstack/` while the server is running will cause the CLI to spawn a new server on the next command. Stop the server first.
+</Warning>
+
+## Debugging Tips
+
+### Check if the server is running
+
+```bash
+# Read the state file
+cat .gstack/browse.json
+
+# Check if the PID is alive
+ps -p $(jq -r .pid .gstack/browse.json)
+
+# Hit the health endpoint
+curl http://127.0.0.1:$(jq -r .port .gstack/browse.json)/health
+```
+
+### Tail the logs in real-time
+
+```bash
+tail -f .gstack/browse-console.log
+tail -f .gstack/browse-network.log
+tail -f .gstack/browse-dialog.log
+```
+
+### Force a server restart
+
+```bash
+# Kill the server
+kill $(jq -r .pid .gstack/browse.json)
+
+# Next command will auto-restart
+$B goto https://example.com
+```
+
+### Use a fixed port for curl testing
+
+```bash
+export BROWSE_PORT=34567
+$B goto https://example.com
+
+# In another terminal:
+curl -H "Authorization: Bearer $(jq -r .token .gstack/browse.json)" \
+     -X POST \
+     -H "Content-Type: application/json" \
+     -d '{"command":"text"}' \
+     http://127.0.0.1:34567/command
+```
+
+## Related Pages
+
+- [Architecture](/reference/architecture) — State file lifecycle and version auto-restart
+- [Security](/reference/security) — State file permissions and auth tokens
+- [Snapshot System](/reference/snapshot-system) — Where annotated screenshots are saved

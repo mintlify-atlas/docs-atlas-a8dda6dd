@@ -1,0 +1,423 @@
+---
+title: Testing
+description: Guide to gstack's 3-tier testing system
+---
+
+gstack uses a three-tier testing system to validate everything from static command references to full agent execution. Each tier has different cost, speed, and coverage trade-offs.
+
+## Overview
+
+The testing strategy catches 95% of issues for free with static validation, then uses LLMs only for judgment calls:
+
+| Tier | What | Cost | Speed | When to Run |
+|------|------|------|-------|-------------|
+| 1 — Static validation | Parse SKILL.md, validate commands/flags | Free | &lt;5s | Every commit |
+| 2 — E2E via Agent SDK | Spawn real Claude session, run skills | ~\$0.50 | ~60s | Before merge |
+| 3 — LLM-as-judge | Score docs on clarity/completeness/actionability | ~\$0.03 | ~10s | Before merge |
+
+## Setup
+
+Before running tests:
+
+<Steps>
+  <Step title="Copy .env.example">
+    ```bash
+    cp .env.example .env
+    ```
+  </Step>
+
+  <Step title="Add your API key">
+    Edit `.env` and set:
+    ```bash
+    ANTHROPIC_API_KEY=sk-ant-...
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    bun install
+    ```
+  </Step>
+</Steps>
+
+<Note>
+Bun auto-loads `.env` — no extra config. Conductor workspaces inherit `.env` from the main worktree automatically.
+</Note>
+
+## Tier 1: Static Validation
+
+Free, fast (&lt;5s), runs on every commit. No API keys needed.
+
+### What It Tests
+
+<AccordionGroup>
+  <Accordion title="Skill Parser Tests (skill-parser.test.ts)">
+    Extracts every `$B` command from SKILL.md bash code blocks and validates against the command registry in `browse/src/commands.ts`.
+    
+    **Catches:**
+    - Typos in command names
+    - Removed commands still referenced in docs
+    - Invalid snapshot flags
+  </Accordion>
+
+  <Accordion title="Skill Validation Tests (skill-validation.test.ts)">
+    Validates that SKILL.md files reference only real commands and flags, and that command descriptions meet quality thresholds.
+    
+    **Checks:**
+    - All `$B` commands exist in command registry
+    - All snapshot flags are valid
+    - Command descriptions are non-empty
+    - Usage strings match implementation
+  </Accordion>
+
+  <Accordion title="Generator Tests (gen-skill-docs.test.ts)">
+    Tests the template system: verifies placeholders resolve correctly, output includes value hints for flags.
+    
+    **Verifies:**
+    - `{{COMMAND_REFERENCE}}` placeholder resolves
+    - `{{SNAPSHOT_FLAGS}}` placeholder resolves
+    - Flags show value hints (e.g. `-d <N>` not just `-d`)
+    - Command descriptions are enriched with examples
+  </Accordion>
+</AccordionGroup>
+
+### Running Tier 1 Tests
+
+<CodeGroup>
+```bash Run all static tests
+bun test
+```
+
+```bash Watch mode
+bun test --watch
+```
+
+```bash Specific test file
+bun test test/skill-validation.test.ts
+```
+</CodeGroup>
+
+### Example Output
+
+```bash
+$ bun test
+
+✓ SKILL.md command validation > all $B commands in SKILL.md are valid browse commands
+✓ SKILL.md command validation > all snapshot flags in SKILL.md are valid
+✓ Command registry consistency > COMMAND_DESCRIPTIONS covers all commands in sets
+✓ Generator tests > command reference includes all commands
+
+ 4 tests passed (231ms)
+```
+
+## Tier 2: E2E via Agent SDK
+
+Spawns a real Claude Code session, invokes `/qa` or `/browse`, and scans tool results for errors. This is the closest thing to "does this skill actually work end-to-end?"
+
+### What It Tests
+
+- Full skill execution via Claude Agent SDK
+- Browse binary auto-discovery from SKILL.md setup block
+- Multi-command sequences (goto → snapshot → click → verify)
+- Error-free tool execution
+
+### Running Tier 2 Tests
+
+<Warning>
+Must run from a plain terminal — can't nest inside Claude Code or Conductor. Gated by `SKILL_E2E=1` env var to prevent accidental expensive runs.
+</Warning>
+
+<CodeGroup>
+```bash Run E2E tests
+SKILL_E2E=1 bun test test/skill-e2e.test.ts
+```
+
+```bash Via npm script
+bun run test:e2e
+```
+</CodeGroup>
+
+### How It Works
+
+<Steps>
+  <Step title="Start test server">
+    Launches a local HTTP server with test fixtures
+  </Step>
+
+  <Step title="Create temp workspace">
+    Symlinks browse binary into temporary directory
+  </Step>
+
+  <Step title="Spawn Claude session">
+    Uses `@anthropic-ai/claude-agent-sdk` to start a real session
+  </Step>
+
+  <Step title="Execute test scenario">
+    Sends prompts like "run `$B goto <url>`, then `$B snapshot -i`"
+  </Step>
+
+  <Step title="Validate results">
+    Scans tool results for errors, checks exit reason
+  </Step>
+
+  <Step title="Save transcript on failure">
+    Full conversation saved for debugging
+  </Step>
+</Steps>
+
+### Example Test
+
+```typescript
+test('browse basic commands work without errors', async () => {
+  const result = await runSkillTest({
+    prompt: `You have a browse binary at ${browsePath}. 
+    Assign it to B variable and run these commands:
+    1. $B goto ${testServer.url}
+    2. $B snapshot -i
+    3. $B text
+    4. $B screenshot /tmp/test.png
+    Report the results of each command.`,
+    workingDirectory: tmpDir,
+    maxTurns: 10,
+    timeout: 60_000,
+  });
+
+  expect(result.browseErrors).toHaveLength(0);
+  expect(result.exitReason).toBe('success');
+}, 90_000);
+```
+
+### Test Helper
+
+The `runSkillTest` helper in `test/helpers/session-runner.ts` handles:
+- Starting/stopping Claude sessions
+- Monitoring tool calls for errors
+- Saving conversation transcripts
+- Auto-skipping if running inside Claude Code
+
+<Tip>
+E2E tests automatically skip if `SKILL_E2E` is not set or if running inside Claude Code (Agent SDK can't nest).
+</Tip>
+
+## Tier 3: LLM-as-Judge
+
+Uses Claude Haiku to score generated SKILL.md docs on three dimensions:
+
+- **Clarity** — Can an AI agent understand the instructions without ambiguity?
+- **Completeness** — Are all commands, flags, and usage patterns documented?
+- **Actionability** — Can the agent execute tasks using only the information in the doc?
+
+Each dimension is scored 1-5. **Threshold: every dimension must score ≥ 4.**
+
+### Running Tier 3 Tests
+
+<CodeGroup>
+```bash Run LLM evals
+bun run test:eval
+```
+
+```bash Direct invocation
+bun test test/skill-llm-eval.test.ts
+```
+</CodeGroup>
+
+### Scoring Guide
+
+| Score | Meaning | Description |
+|-------|---------|-------------|
+| 5 | Excellent | No ambiguity, all info present |
+| 4 | Good | Minor gaps an experienced agent could infer |
+| 3 | Adequate | Some guessing required |
+| 2 | Poor | Significant info missing |
+| 1 | Unusable | Agent would fail without external help |
+
+### Example Test
+
+```typescript
+test('command reference table scores >= 4 on all dimensions', async () => {
+  const content = fs.readFileSync('SKILL.md', 'utf-8');
+  const section = extractSection(content, 'Command Reference');
+  
+  const scores = await judge('command reference table', section);
+  
+  expect(scores.clarity).toBeGreaterThanOrEqual(4);
+  expect(scores.completeness).toBeGreaterThanOrEqual(4);
+  expect(scores.actionability).toBeGreaterThanOrEqual(4);
+});
+```
+
+### Example Output
+
+```json
+{
+  "clarity": 5,
+  "completeness": 4,
+  "actionability": 5,
+  "reasoning": "Command reference is well-structured with clear descriptions. Minor: some enum values could list all valid options explicitly."
+}
+```
+
+<Note>
+Uses `claude-sonnet-4-6` for quality evaluation. Total cost per run: ~\$0.03.
+</Note>
+
+## CI Integration
+
+A GitHub Action (`.github/workflows/skill-docs.yml`) runs on every push and PR:
+
+```yaml
+- name: Check docs freshness
+  run: bun run gen:skill-docs --dry-run
+```
+
+If the generated SKILL.md files differ from what's committed, CI fails. This catches stale docs before they merge.
+
+<Tip>
+Tests run against the browse binary directly — they don't require dev mode.
+</Tip>
+
+## Coverage Expectations
+
+### What Should Be Tested
+
+<Tabs>
+  <Tab title="Commands">
+    - All commands in `browse/src/commands.ts` appear in generated docs
+    - All `$B` commands in SKILL.md are valid
+    - Usage strings match between implementation and docs
+  </Tab>
+  
+  <Tab title="Flags">
+    - All snapshot flags in `snapshot.ts` appear in generated docs
+    - Flag descriptions include value hints (e.g. `-d <N>`)
+    - All flags in SKILL.md are valid
+  </Tab>
+  
+  <Tab title="Workflows">
+    - Critical user flows work end-to-end (E2E)
+    - Docs score ≥4 on clarity/completeness/actionability (LLM judge)
+  </Tab>
+</Tabs>
+
+### What Doesn't Need Tests
+
+- Hand-written prose in `.tmpl` files (human judgment)
+- Workflow tips and examples (validated by LLM judge)
+- Browser interaction specifics (covered by browse integration tests)
+
+## Running All Tests
+
+<CodeGroup>
+```bash All tests (Tier 1 + Tier 2)
+bun run test:all
+```
+
+```bash All tests including LLM eval
+bun test  # Tier 1
+bun run test:e2e  # Tier 2
+bun run test:eval  # Tier 3
+```
+</CodeGroup>
+
+## Debugging Test Failures
+
+### Static Validation Failures
+
+If Tier 1 tests fail:
+
+<Steps>
+  <Step title="Check command registry">
+    Verify the command exists in `browse/src/commands.ts`
+  </Step>
+
+  <Step title="Regenerate docs">
+    ```bash
+    bun run gen:skill-docs
+    ```
+  </Step>
+
+  <Step title="Check snapshot flags">
+    Verify the flag exists in `browse/src/snapshot.ts`
+  </Step>
+</Steps>
+
+### E2E Failures
+
+If Tier 2 tests fail:
+
+<Steps>
+  <Step title="Check transcript">
+    Look for saved conversation in `/tmp/skill-e2e-*.json`
+  </Step>
+
+  <Step title="Run browse command manually">
+    ```bash
+    ./browse/dist/browse <command>
+    ```
+  </Step>
+
+  <Step title="Check for agent confusion">
+    Review tool calls in transcript — did the agent misunderstand instructions?
+  </Step>
+</Steps>
+
+### LLM Judge Failures
+
+If Tier 3 tests fail:
+
+<Steps>
+  <Step title="Read the reasoning">
+    Judge output includes explanation of low scores
+  </Step>
+
+  <Step title="Check for missing info">
+    Are valid values, argument types, or examples missing?
+  </Step>
+
+  <Step title="Update template">
+    Add clarity to `SKILL.md.tmpl`, regenerate, and re-run
+  </Step>
+</Steps>
+
+## Test Scripts Reference
+
+```json
+{
+  "test": "bun test browse/test/ test/ --ignore test/skill-e2e.test.ts --ignore test/skill-llm-eval.test.ts",
+  "test:e2e": "SKILL_E2E=1 bun test test/skill-e2e.test.ts",
+  "test:eval": "bun test test/skill-llm-eval.test.ts",
+  "test:all": "bun test browse/test/ test/ --ignore test/skill-e2e.test.ts --ignore test/skill-llm-eval.test.ts && SKILL_E2E=1 bun test test/skill-e2e.test.ts",
+  "skill:check": "bun run scripts/skill-check.ts"
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Run Tier 1 frequently" icon="bolt">
+    Static tests are free and fast. Run them on every save.
+  </Card>
+  
+  <Card title="Run Tier 2 before merge" icon="code-merge">
+    E2E tests catch integration issues. Run before opening PR.
+  </Card>
+  
+  <Card title="Run Tier 3 for doc changes" icon="file-lines">
+    LLM judge validates doc quality. Run after template edits.
+  </Card>
+  
+  <Card title="Let CI catch staleness" icon="circle-check">
+    CI runs `gen:skill-docs --dry-run` to ensure docs are fresh.
+  </Card>
+</CardGroup>
+
+## Summary
+
+The 3-tier test system ensures:
+
+1. **Static validation** catches 95% of issues for free
+2. **E2E tests** verify full skill execution works end-to-end
+3. **LLM judge** validates documentation quality for AI agents
+4. **CI integration** prevents stale docs from merging
+
+All tests run in &lt;2 minutes total and cost &lt;\$1 per full suite run.

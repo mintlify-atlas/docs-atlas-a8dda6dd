@@ -1,97 +1,160 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "gstack"
+description: "Turn Claude Code into a team of specialists — founder, eng manager, QA engineer, and release manager in one toolkit"
 ---
 
-## Setting up
+<img
+  className="block"
+  src="https://media.brand.dev/d6c060ec-2523-4c85-8154-1eb3bc30b0a5.svg"
+  alt="gstack"
+/>
 
-Get your documentation site up and running in minutes.
+gstack turns Claude Code from one generic assistant into a team of specialists you can summon on demand. Eight opinionated workflow skills for planning, code review, shipping, browser automation, QA testing, and engineering retrospectives — all as slash commands.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
+## Why gstack?
+
+Without gstack, Claude Code takes your requests literally. It implements exactly what you say, even when the real product is something bigger. Code review is inconsistent. Shipping becomes a long back-and-forth. The agent can write code but can't see your app — it's half blind.
+
+With gstack, you get explicit cognitive modes:
+
+<CardGroup cols={2}>
+  <Card title="Founder Mode" icon="lightbulb" href="/skills/plan-ceo-review">
+    Rethink the problem. Find the 10-star product hiding inside the request.
+  </Card>
+  <Card title="Eng Manager Mode" icon="diagram-project" href="/skills/plan-eng-review">
+    Lock in architecture, data flow, diagrams, edge cases, and tests.
+  </Card>
+  <Card title="Paranoid Review" icon="shield" href="/skills/review">
+    Find bugs that pass CI but blow up in production. Triages Greptile reviews.
+  </Card>
+  <Card title="Release Engineer" icon="rocket" href="/skills/ship">
+    Sync main, run tests, resolve reviews, push, open PR — done.
+  </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="QA Engineer" icon="browser" href="/skills/browse">
+    Give the agent eyes. It logs in, clicks through your app, takes screenshots.
+  </Card>
+  <Card title="QA Lead" icon="clipboard-check" href="/skills/qa">
+    Systematic testing. Auto-analyzes diff, identifies affected pages, tests them.
+  </Card>
+  <Card title="Session Manager" icon="cookie" href="/skills/setup-browser-cookies">
+    Import cookies from your real browser. Test authenticated pages instantly.
+  </Card>
+  <Card title="Eng Manager Retro" icon="chart-line" href="/skills/retro">
+    Team-aware retrospectives with per-person praise and growth opportunities.
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="40+ Browser Commands" icon="terminal" href="/reference/browse/navigation">
+    Sub-second latency with persistent Chromium daemon and ref-based interaction
+  </Card>
+  <Card title="Diff-Aware QA" icon="magnifying-glass" href="/patterns/qa-testing">
+    Auto-detects affected pages from git diff and tests only what changed
+  </Card>
+  <Card title="Cookie Import" icon="key" href="/skills/setup-browser-cookies">
+    Import sessions from Chrome, Arc, Brave, Edge, Comet via macOS Keychain
+  </Card>
+  <Card title="Greptile Integration" icon="robot" href="/patterns/greptile-integration">
+    Auto-triage PR review comments with false positive detection
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+<Steps>
+  <Step title="Install gstack">
+    Open Claude Code and paste this command:
+    
+    ```bash
+    git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup
+    ```
+  </Step>
+  
+  <Step title="Add to your project">
+    Copy gstack to your repo so teammates get it automatically:
+    
+    ```bash
+    cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup
+    ```
+  </Step>
+  
+  <Step title="Use the skills">
+    Start using slash commands in Claude Code:
+    
+    - `/plan-ceo-review` — Product direction
+    - `/plan-eng-review` — Technical planning  
+    - `/review` — Code review
+    - `/ship` — Ship your branch
+    - `/browse` — Browser automation
+    - `/qa` — QA testing
+  </Step>
+</Steps>
+
+<Card title="Full Installation Guide" icon="book" href="/installation" horizontal>
+  See detailed installation instructions and requirements
 </Card>
 
-## Make it yours
+## Example Workflow
 
-Design a docs site that looks great and empowers your users.
+```
+You:   [enter plan mode, describe the feature]
+       I want to add seller photo upload to the listing app.
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+You:   /plan-ceo-review
 
-## Create beautiful pages
+Claude: "Photo upload" is not the feature. The real job is helping sellers
+        create listings that actually sell. Here's what the 10-star version
+        looks like: auto-identify the product, pull specs and pricing comps...
 
-Everything you need to create world-class documentation.
+You:   /plan-eng-review
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+Claude: [Architecture diagram, state machine for upload → classify → enrich
+        → draft pipeline, async job boundaries, failure modes, test matrix]
 
-## Need inspiration?
+You:   [exit plan mode, implement the plan]
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+You:   /review
+
+Claude: Race condition: two tabs can overwrite cover-photo selection.
+        Trust boundary: pulling web data creates prompt injection vector.
+
+You:   (fix the issues)
+
+You:   /ship
+
+Claude: [Syncs main, runs tests, pushes branch, opens PR — 6 tool calls, done]
+
+You:   /qa
+
+Claude: Analyzing branch diff... 8 files changed, 3 routes affected.
+        [Tests /listings/new, /listings/:id, /api/listings]
+        All 3 routes working. Upload + enrichment flow passes end to end.
+```
+
+## Who This Is For
+
+You already use Claude Code heavily and want consistent, high-rigor workflows instead of one mushy generic mode. You want to tell the model what kind of brain to use right now — founder taste, engineering rigor, paranoid review, or fast execution.
+
+This is not a prompt pack for beginners. It is an operating system for people who ship.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="brain" href="/concepts/workflow-modes">
+    Learn how workflow modes transform your development process
+  </Card>
+  <Card title="Browse Commands" icon="terminal" href="/reference/browse/navigation">
+    Explore the 40+ browser automation commands
+  </Card>
+  <Card title="Architecture" icon="cube" href="/reference/architecture">
+    Understand the technical design and daemon model
+  </Card>
+  <Card title="Multi-Session Setup" icon="layer-group" href="/patterns/multi-session">
+    Run 10 parallel Claude Code sessions with Conductor
+  </Card>
+</CardGroup>

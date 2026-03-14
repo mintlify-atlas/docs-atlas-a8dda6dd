@@ -1,0 +1,565 @@
+---
+title: "Skill System"
+description: "How Claude Code discovers, loads, and executes gstack skills via symlink-based templates"
+---
+
+## What Are Claude Code Skills?
+
+Claude Code skills are **Markdown files with YAML frontmatter** that tell Claude how to perform specialized tasks.
+
+Each skill file (`SKILL.md`) contains:
+- **Metadata:** Name, version, description, allowed tools
+- **Instructions:** Step-by-step workflows, command patterns, tips
+- **Templates:** Reusable patterns for common operations
+
+When you invoke `/browse` or `/plan-ceo-review`, Claude loads the corresponding `SKILL.md` file and follows its instructions.
+
+---
+
+## Discovery Mechanism: Symlinks
+
+gstack uses a **symlink-based discovery system** to make skills available to Claude Code.
+
+### Directory Structure
+
+```
+~/.claude/skills/
+├── gstack/                    # Main gstack directory
+│   ├── browse/
+│   │   ├── SKILL.md          # Browse skill instructions
+│   │   ├── src/              # TypeScript source
+│   │   └── dist/
+│   │       └── browse        # Compiled binary
+│   ├── plan-ceo-review/
+│   │   └── SKILL.md          # CEO review skill
+│   ├── plan-eng-review/
+│   │   └── SKILL.md          # Eng review skill
+│   ├── review/
+│   │   └── SKILL.md          # Code review skill
+│   ├── ship/
+│   │   └── SKILL.md          # Ship skill
+│   ├── qa/
+│   │   └── SKILL.md          # QA skill
+│   ├── retro/
+│   │   └── SKILL.md          # Retro skill
+│   ├── setup-browser-cookies/
+│   │   └── SKILL.md          # Cookie import skill
+│   └── setup                 # Setup script
+├── browse -> gstack/browse              # Symlink
+├── plan-ceo-review -> gstack/plan-ceo-review
+├── plan-eng-review -> gstack/plan-eng-review
+├── review -> gstack/review
+├── ship -> gstack/ship
+├── qa -> gstack/qa
+├── retro -> gstack/retro
+└── setup-browser-cookies -> gstack/setup-browser-cookies
+```
+
+### How Discovery Works
+
+1. Claude Code scans `~/.claude/skills/` for directories containing `SKILL.md`
+2. It finds symlinks pointing into `gstack/`
+3. Each symlink exposes a skill (e.g., `browse` → `gstack/browse/SKILL.md`)
+4. When you invoke `/browse`, Claude loads `~/.claude/skills/browse/SKILL.md`
+
+<Info>
+Symlinks let gstack install once to `~/.claude/skills/gstack/` and expose all 8 skills without duplicating files.
+</Info>
+
+### The Setup Script
+
+The `setup` script creates these symlinks automatically:
+
+```bash
+#!/usr/bin/env bash
+set -e
+
+GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
+SKILLS_DIR="$(dirname "$GSTACK_DIR")"
+
+# Only create symlinks if we're inside .claude/skills/
+SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
+if [ "$SKILLS_BASENAME" = "skills" ]; then
+  for skill_dir in "$GSTACK_DIR"/*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      target="$SKILLS_DIR/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "gstack/$skill_name" "$target"
+      fi
+    fi
+  done
+fi
+```
+
+From `setup` script (lines 60-76).
+
+---
+
+## The SKILL.md Template System
+
+### The Problem
+
+SKILL.md files tell Claude how to use browse commands. If docs list a flag that doesn't exist, or miss a command that was added, the agent hits errors.
+
+Hand-maintained docs always drift from code.
+
+### The Solution: Generated Docs
+
+```
+SKILL.md.tmpl          (human-written prose + placeholders)
+       ↓
+gen-skill-docs.ts      (reads source code metadata)
+       ↓
+SKILL.md               (committed, auto-generated sections)
+```
+
+**Templates contain:**
+- Workflows and tips (require human judgment)
+- `{{COMMAND_REFERENCE}}` placeholder
+- `{{SNAPSHOT_FLAGS}}` placeholder
+
+**Generator fills placeholders from:**
+- `browse/src/commands.ts` — command registry (single source of truth)
+- `browse/src/snapshot.ts` — `SNAPSHOT_FLAGS` metadata array
+
+<Tip>
+This is structurally sound — if a command exists in code, it appears in docs. If it doesn't exist, it can't appear.
+</Tip>
+
+### Example: browse/SKILL.md.tmpl
+
+From `browse/SKILL.md.tmpl`:
+
+```markdown
+## Snapshot System
+
+The snapshot is your primary tool for understanding 
+and interacting with pages.
+
+{{SNAPSHOT_FLAGS}}
+
+All flags can be combined freely. `-o` only applies 
+when `-a` is also used.
+
+## Command Reference
+
+{{COMMAND_REFERENCE}}
+
+## Tips
+
+1. **Navigate once, query many times.** `goto` loads 
+   the page; then `text`, `js`, `screenshot` all hit 
+   the loaded page instantly.
+...
+```
+
+After running `bun run gen:skill-docs`, placeholders are replaced with auto-generated tables.
+
+### Why Committed, Not Generated at Runtime?
+
+Three reasons:
+
+1. **Claude reads SKILL.md at skill load time.** There's no build step when a user invokes `/browse`. The file must already exist and be correct.
+
+2. **CI can validate freshness.** `gen:skill-docs --dry-run` + `git diff --exit-code` catches stale docs before merge.
+
+3. **Git blame works.** You can see when a command was added and in which commit.
+
+---
+
+## How Skills Invoke the Browser Binary
+
+### The $B Variable
+
+Every skill that uses the browser defines a setup check:
+
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+if [ -x "$B" ]; then
+  echo "READY: $B"
+else
+  echo "NEEDS_SETUP"
+fi
+```
+
+From `browse/SKILL.md` (lines 34-45).
+
+This sets `$B` to the browse binary path. Skills then invoke commands like:
+
+```bash
+$B goto https://example.com
+$B snapshot -i
+$B click @e3
+```
+
+### Binary Location Priority
+
+1. **Project-local install:** `.claude/skills/gstack/browse/dist/browse` (if inside a git repo)
+2. **Global install:** `~/.claude/skills/gstack/browse/dist/browse`
+
+This lets teams commit gstack to their repo (not as a submodule — real files) so `git clone` just works.
+
+<Note>
+The binary and `node_modules` are gitignored. Teammates run `cd .claude/skills/gstack && ./setup` once to build.
+</Note>
+
+---
+
+## Skill Metadata: YAML Frontmatter
+
+Each `SKILL.md` starts with YAML frontmatter:
+
+```yaml
+---
+name: browse
+version: 1.1.0
+description: |
+  Fast headless browser for QA testing and site dogfooding. 
+  Navigate any URL, interact with elements, verify page state, 
+  diff before/after actions, take annotated screenshots, check 
+  responsive layouts, test forms and uploads, handle dialogs, 
+  and assert element states. ~100ms per command. Use when you 
+  need to test a feature, verify a deployment, dogfood a user 
+  flow, or file a bug with evidence.
+allowed-tools:
+  - Bash
+  - Read
+  - AskUserQuestion
+---
+```
+
+From `browse/SKILL.md` (lines 1-14).
+
+### Fields
+
+| Field | Purpose |
+|-------|--------|
+| `name` | Skill identifier (matches directory name) |
+| `version` | Semantic version |
+| `description` | Short summary (Claude uses this to decide when to invoke) |
+| `allowed-tools` | Which Claude Code tools this skill can use |
+
+<Info>
+Claude uses the `description` to auto-suggest skills. When you say "test my app," Claude sees `/browse` and `/qa` descriptions and may suggest them.
+</Info>
+
+---
+
+## Test Tiers
+
+gstack validates skill quality at three levels:
+
+| Tier | What | Cost | Speed |
+|------|------|------|-------|
+| **1 — Static validation** | Parse every `$B` command in SKILL.md, validate against registry | Free | &lt;2s |
+| **2 — E2E via Agent SDK** | Spawn real Claude session, run `/qa`, check for errors | ~\$0.50 | ~60s |
+| **3 — LLM-as-judge** | Haiku scores docs on clarity/completeness/actionability | ~\$0.03 | ~10s |
+
+From `ARCHITECTURE.md` (lines 193-200).
+
+### Tier 1: Static Validation
+
+Runs on every `bun test`:
+
+```typescript
+// test/skill-validation.test.ts
+import { parseSkill } from './helpers/skill-parser';
+import { COMMANDS } from '../browse/src/commands';
+
+test('all $B commands in SKILL.md are valid', () => {
+  const skill = parseSkill('browse/SKILL.md');
+  for (const cmd of skill.commands) {
+    expect(COMMANDS.has(cmd.name)).toBe(true);
+  }
+});
+```
+
+Catches 95% of issues for free.
+
+### Tier 2: E2E via Agent SDK
+
+Gated behind `SKILL_E2E=1` env var:
+
+```typescript
+// test/skill-e2e.test.ts
+import { AgentSDK } from '@anthropic-ai/agent-sdk';
+
+test('/qa skill works end-to-end', async () => {
+  const agent = new AgentSDK();
+  const result = await agent.run('/qa');
+  expect(result.errors).toHaveLength(0);
+});
+```
+
+Runs ~\$0.50 per full test suite.
+
+### Tier 3: LLM-as-Judge
+
+Gated behind `ANTHROPIC_API_KEY` env var:
+
+```typescript
+// test/skill-llm-eval.test.ts
+test('SKILL.md is clear and actionable', async () => {
+  const skillContent = readFileSync('browse/SKILL.md', 'utf8');
+  const score = await evaluateWithHaiku(skillContent, {
+    clarity: 'Is the skill easy to understand?',
+    completeness: 'Are all commands documented?',
+    actionability: 'Can an agent follow these instructions?'
+  });
+  expect(score.overall).toBeGreaterThan(0.8);
+});
+```
+
+Runs ~\$0.03 per skill.
+
+---
+
+## Project Install vs Global Install
+
+### Global Install (User Machine)
+
+```bash
+git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+cd ~/.claude/skills/gstack
+./setup
+```
+
+Installs to `~/.claude/skills/gstack/`, available to all Claude Code sessions on that machine.
+
+### Project Install (Shared with Team)
+
+```bash
+cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
+rm -rf .claude/skills/gstack/.git
+cd .claude/skills/gstack
+./setup
+```
+
+Commits gstack to `.claude/skills/gstack/` in your repo (not as submodule — real files).
+
+**Gitignored:**
+- `browse/dist/browse` (binary, ~58MB)
+- `node_modules/`
+
+**Committed:**
+- All source files
+- SKILL.md files
+- setup script
+
+Teammates just need to run `cd .claude/skills/gstack && ./setup` once after `git clone`.
+
+<Tip>
+`/browse` auto-detects missing binary and prompts user to run setup.
+</Tip>
+
+---
+
+## Skill Auto-Discovery Flow
+
+When Claude Code starts:
+
+```
+1. Scan ~/.claude/skills/ for directories
+2. For each directory:
+   a. Check if SKILL.md exists
+   b. Parse YAML frontmatter
+   c. Register skill with name and description
+3. When user types /browse:
+   a. Load ~/.claude/skills/browse/SKILL.md
+   b. Follow symlink to gstack/browse/SKILL.md
+   c. Parse instructions
+   d. Execute with allowed-tools: [Bash, Read, AskUserQuestion]
+```
+
+No config files. No registration API. Just files in the right place.
+
+---
+
+## Skill Update Flow
+
+### User Initiates Update
+
+```bash
+cd ~/.claude/skills/gstack
+git fetch origin
+git reset --hard origin/main
+./setup
+```
+
+### What Setup Does
+
+1. **Smart rebuild check:**
+   - Binary exists and is newer than all source files? Skip build.
+   - Otherwise: `bun install && bun run build`
+
+2. **Version tracking:**
+   - Write `git rev-parse HEAD` to `browse/dist/.version`
+   - CLI checks version on every invocation
+   - Auto-restart server if version mismatch
+
+3. **Symlink refresh:**
+   - Re-create all skill symlinks in `~/.claude/skills/`
+   - Ensures new skills are discovered
+
+4. **Playwright check:**
+   - Verify Chromium is installed
+   - If missing: `bunx playwright install chromium`
+
+From `setup` script (lines 9-87).
+
+---
+
+## Skill Composition Patterns
+
+### Sequential Chain
+
+```
+/plan-ceo-review     → Lock product direction
+/plan-eng-review     → Lock technical plan
+(implement)          → Write code
+/review              → Structural audit
+(fix issues)         → Address findings
+/ship                → Push and create PR
+/qa                  → Test affected routes
+```
+
+Each mode outputs context for the next.
+
+### Parallel Execution (with Conductor)
+
+```
+Workspace 1: /qa https://staging.app.com
+Workspace 2: /review (on PR #42)
+Workspace 3: implementing feature-x
+Workspace 4: /retro (weekly analysis)
+Workspace 5-10: working on other branches
+```
+
+Each workspace gets isolated browser instance automatically.
+
+---
+
+## Advanced: Creating Custom Skills
+
+You can create your own skills following the same pattern:
+
+### 1. Create Directory
+
+```bash
+mkdir ~/.claude/skills/my-skill
+```
+
+### 2. Write SKILL.md
+
+```markdown
+---
+name: my-skill
+version: 1.0.0
+description: |
+  What this skill does and when to use it.
+allowed-tools:
+  - Bash
+  - Read
+  - Grep
+---
+
+# My Skill Instructions
+
+## When to Use
+Describe scenarios...
+
+## Workflow
+1. Step one
+2. Step two
+...
+```
+
+### 3. Test It
+
+```bash
+/my-skill
+```
+
+Claude loads the SKILL.md and follows instructions.
+
+<Note>
+If your skill needs a compiled binary like `/browse`, add build steps to a `setup` script and document the build process in SKILL.md.
+</Note>
+
+---
+
+## Skill Quality Checklist
+
+Before shipping a skill:
+
+- [ ] YAML frontmatter is valid
+- [ ] Description clearly states when to use the skill
+- [ ] Allowed-tools includes all tools the skill uses
+- [ ] Instructions are step-by-step and actionable
+- [ ] Examples use real patterns from your codebase
+- [ ] All commands/flags are documented
+- [ ] Error messages guide the agent to correct usage
+- [ ] Tier 1 static validation passes (if using generated docs)
+- [ ] Manual test with Claude confirms it works end-to-end
+
+---
+
+## Troubleshooting
+
+### Skill not showing up in Claude Code?
+
+Run symlink check:
+
+```bash
+ls -la ~/.claude/skills/ | grep gstack
+```
+
+If symlinks are missing:
+
+```bash
+cd ~/.claude/skills/gstack
+./setup
+```
+
+### Binary not found errors?
+
+```bash
+cd ~/.claude/skills/gstack
+bun install
+bun run build
+```
+
+Verify:
+
+```bash
+ls -lh ~/.claude/skills/gstack/browse/dist/browse
+# Should show ~58MB executable
+```
+
+### Stale docs (command not found)?
+
+Regenerate from templates:
+
+```bash
+cd ~/.claude/skills/gstack
+bun run gen:skill-docs
+```
+
+Check for uncommitted changes:
+
+```bash
+git diff browse/SKILL.md
+```
+
+---
+
+## Further Reading
+
+- [Workflow Modes](/concepts/workflow-modes) — The 8 cognitive modes and when to use them
+- [Browser Automation](/concepts/browser-automation) — How the browse binary works
+- [CONTRIBUTING.md](https://github.com/garrytan/gstack/blob/main/CONTRIBUTING.md) — How to contribute to gstack
+- [Claude Code Skills Docs](https://docs.anthropic.com/en/docs/claude-code) — Official Claude Code documentation

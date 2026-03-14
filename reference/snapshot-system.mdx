@@ -1,0 +1,317 @@
+---
+title: Snapshot System
+description: Element selection via @refs — no CSS selectors, no XPath, no DOM mutation
+---
+
+## Overview
+
+The snapshot system provides a way for AI agents to address page elements without writing CSS selectors or XPath expressions. Instead, elements are assigned sequential references like `@e1`, `@e2`, `@e3` that can be used directly in interaction commands.
+
+```bash
+$B snapshot -i
+# Output:
+# @e1 [button] "Sign in"
+# @e2 [textbox] "Email"
+# @e3 [textbox] "Password"
+# @e4 [link] "Forgot password?"
+
+$B fill @e2 "user@example.com"
+$B fill @e3 "password123"
+$B click @e1
+```
+
+## How It Works
+
+```
+1. Agent runs: $B snapshot -i
+2. Server calls page.accessibility.snapshot()
+3. Parser walks the ARIA tree, assigns sequential refs: @e1, @e2, @e3...
+4. For each ref, builds a Playwright Locator: getByRole(role, { name }).nth(index)
+5. Stores Map<string, Locator> on the BrowserManager instance
+6. Returns the annotated tree as plain text
+
+Later:
+7. Agent runs: $B click @e3
+8. Server resolves @e3 → Locator → locator.click()
+```
+
+See `browse/src/snapshot.ts` for the full implementation.
+
+## Why Not DOM Mutation?
+
+The obvious approach is to inject `data-ref="@e1"` attributes into the DOM. This breaks on:
+
+- **CSP (Content Security Policy)**: Many production sites block DOM modification from scripts.
+- **React/Vue/Svelte hydration**: Framework reconciliation can strip injected attributes.
+- **Shadow DOM**: Can't reach inside shadow roots from the outside.
+
+Playwright Locators are external to the DOM. They use the accessibility tree (which Chromium maintains internally) and `getByRole()` queries. No DOM mutation, no CSP issues, no framework conflicts.
+
+<Info>
+The accessibility tree is the same data structure used by screen readers. It's stable, semantic, and maintained by the browser regardless of framework or CSP rules.
+</Info>
+
+## Snapshot Flags
+
+The `snapshot` command supports multiple flags for filtering and visualization:
+
+| Flag | Description |
+|------|-------------|
+| `-i`, `--interactive` | Interactive elements only (buttons, links, inputs) with `@e` refs |
+| `-c`, `--compact` | Compact (no empty structural nodes) |
+| `-d <N>`, `--depth <N>` | Limit tree depth (0 = root only, default: unlimited) |
+| `-s <sel>`, `--selector <sel>` | Scope to CSS selector |
+| `-D`, `--diff` | Unified diff against previous snapshot (first call stores baseline) |
+| `-a`, `--annotate` | Annotated screenshot with red overlay boxes and ref labels |
+| `-o <path>`, `--output <path>` | Output path for annotated screenshot (default: `/tmp/browse-annotated.png`) |
+| `-C`, `--cursor-interactive` | Cursor-interactive elements (`@c` refs — divs with pointer, onclick) |
+
+### Common Usage Patterns
+
+**Interactive elements only** (recommended for agents):
+```bash
+$B snapshot -i
+```
+
+**Full accessibility tree**:
+```bash
+$B snapshot
+```
+
+**Diff against previous snapshot**:
+```bash
+$B snapshot -i -D
+# First call: stores baseline
+# Second call: shows unified diff
+```
+
+**Annotated screenshot**:
+```bash
+$B snapshot -i -a -o /tmp/debug.png
+# Creates screenshot with red boxes and @ref labels
+```
+
+**Scope to a specific section**:
+```bash
+$B snapshot -i -s "#checkout-form"
+# Only elements inside the checkout form
+```
+
+## Ref Types
+
+### Standard Refs (`@e1`, `@e2`, ...)
+
+Generated from the ARIA tree. These are elements with semantic roles like:
+- `button`
+- `link`
+- `textbox`
+- `checkbox`
+- `radio`
+- `combobox`
+- `menuitem`
+- `tab`
+
+**Example output:**
+```
+@e1 [button] "Submit"
+@e2 [link] "Privacy Policy"
+@e3 [textbox] "Email" [required]
+@e4 [checkbox] "Remember me"
+```
+
+### Cursor-Interactive Refs (`@c1`, `@c2`, ...)
+
+Generated with the `-C` flag. These are elements that are clickable but not in the ARIA tree — typically custom components styled with:
+- `cursor: pointer`
+- `onclick` attribute
+- `tabindex >= 0`
+
+This catches framework components that frameworks render as `<div>` but are actually buttons.
+
+**Example output:**
+```
+── cursor-interactive (not in ARIA tree) ──
+@c1 [cursor:pointer] "Custom Button"
+@c2 [onclick, cursor:pointer] "Toggle Menu"
+@c3 [tabindex=0] "Keyboard Accessible Div"
+```
+
+<Warning>
+Cursor-interactive refs scan the entire DOM and may be slow on large pages. Use sparingly or scope with `-s <selector>`.
+</Warning>
+
+## Ref Lifecycle
+
+Refs are **cleared on navigation**. This happens automatically when:
+- The page navigates to a new URL
+- The page reloads
+- The main frame emits a `framenavigated` event
+
+After navigation, all locators are stale. The agent must run `snapshot` again to get fresh refs.
+
+<Note>
+This is by design: stale refs should fail loudly, not click the wrong element.
+</Note>
+
+### Snapshot Baseline (for diff mode)
+
+The snapshot text baseline is **NOT cleared on navigation**. It's a text comparison tool, not tied to the DOM. You can diff snapshots across pages or after navigation.
+
+## Locator Disambiguation
+
+If multiple elements share the same role and name, the snapshot system uses `.nth()` to disambiguate:
+
+```typescript
+// If there are 3 buttons named "Next":
+const locator = page.getByRole('button', { name: 'Next' }).nth(0); // @e1
+const locator = page.getByRole('button', { name: 'Next' }).nth(1); // @e2
+const locator = page.getByRole('button', { name: 'Next' }).nth(2); // @e3
+```
+
+This ensures every ref maps to exactly one element, even when the page has duplicates.
+
+## Annotated Screenshots
+
+The `-a` flag creates a screenshot with visual overlays for each ref:
+
+```bash
+$B snapshot -i -a
+# Creates /tmp/browse-annotated.png with:
+# - Red boxes around each @ref
+# - Ref labels (e.g., "@e1") at top-left of each box
+```
+
+This is useful for:
+- Debugging why a ref isn't visible
+- Understanding the spatial layout of refs
+- QA reports with visual evidence
+
+**How it works:**
+1. For each ref, get `locator.boundingBox()`
+2. Inject overlay `<div>` elements with `position: absolute`
+3. Take full-page screenshot
+4. Remove overlay elements (cleanup even on error)
+
+<Info>
+Annotated screenshots may fail on CSP-protected pages. The snapshot text output is always reliable.
+</Info>
+
+## Diff Mode
+
+The `-D` flag compares the current snapshot against the last one:
+
+```bash
+$B snapshot -i -D
+# First call:
+# (no previous snapshot to diff against — this snapshot stored as baseline)
+
+# Make changes to the page...
+
+$B snapshot -i -D
+# Output:
+# --- previous snapshot
+# +++ current snapshot
+# 
+#   @e1 [button] "Submit"
+# - @e2 [textbox] "Email"
+# + @e2 [textbox] "Email" [required]
+#   @e3 [button] "Cancel"
+```
+
+Useful for:
+- Detecting page changes during QA
+- Verifying that an action added/removed elements
+- Tracking state changes in SPAs
+
+## Filtering Options
+
+### Interactive Only (`-i`)
+
+Recommended for agents. Returns only elements that can be clicked, filled, or otherwise interacted with:
+
+```bash
+$B snapshot -i
+```
+
+**Included roles:**
+- `button`, `link`, `textbox`, `checkbox`, `radio`, `combobox`, `listbox`
+- `menuitem`, `menuitemcheckbox`, `menuitemradio`, `option`
+- `searchbox`, `slider`, `spinbutton`, `switch`, `tab`, `treeitem`
+
+See `browse/src/snapshot.ts:25` for the full `INTERACTIVE_ROLES` set.
+
+### Compact (`-c`)
+
+Removes empty structural nodes (e.g., `<div>` with no text or children). Reduces noise on pages with heavy nesting.
+
+### Depth Limit (`-d <N>`)
+
+Limits tree traversal depth. Useful for scoping to top-level navigation:
+
+```bash
+$B snapshot -i -d 1
+# Only elements 1 level deep in the ARIA tree
+```
+
+### Selector Scope (`-s <selector>`)
+
+Scopes the snapshot to a CSS selector subtree:
+
+```bash
+$B snapshot -i -s "main"
+# Only elements inside <main>
+
+$B snapshot -i -s "#search-results"
+# Only elements inside the search results container
+```
+
+## Using Refs in Commands
+
+Any command that accepts a CSS selector also accepts a `@ref`:
+
+```bash
+# Interaction commands
+$B click @e1
+$B fill @e2 "text"
+$B hover @e3
+$B scroll @e4
+
+# Inspection commands
+$B attrs @e1
+$B css @e1 color
+$B is visible @e1
+
+# Visual commands (screenshot selector scope)
+$B screenshot /tmp/button.png @e1
+```
+
+The server resolves `@e1` → Locator internally. If the ref doesn't exist, you get an actionable error:
+
+```
+Ref @e5 not found. Page may have changed — run 'snapshot' to get fresh refs.
+```
+
+## Limitations
+
+### No Iframe Support
+
+The ref system doesn't cross frame boundaries. If you need to interact with an iframe:
+
+1. Use CSS selectors with `iframe >>> selector` syntax (Playwright's frame-piercing selector)
+2. Or extract the iframe's accessibility tree manually (not currently supported)
+
+### CSP Restrictions on Cursor Scan
+
+The `-C` cursor-interactive scan runs JavaScript in the page context. If CSP blocks inline scripts, the scan fails gracefully:
+
+```
+(cursor scan failed — CSP restriction)
+```
+
+Standard `@e` refs always work (they use the accessibility API, not DOM inspection).
+
+## Related Pages
+
+- [Architecture](/reference/architecture) — Why Locators, not DOM mutation
+- [Security](/reference/security) — No cookie values in snapshot output
+- [Configuration](/reference/configuration) — Where annotated screenshots are saved

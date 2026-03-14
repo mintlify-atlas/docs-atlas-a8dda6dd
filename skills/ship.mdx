@@ -1,0 +1,281 @@
+---
+title: "ship"
+description: "Release engineer mode: sync main, run tests, review, push, open PR"
+---
+
+# ship
+
+**Ship workflow: merge main, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR.** Fully automated. Non-interactive. Just say `/ship` and get a PR URL.
+
+## When to Use
+
+Use `/ship` when you:
+
+- **Have a ready branch** to merge — the interesting work is done
+- **Want automated release hygiene** — version bump, changelog, tests, review, PR creation
+- **Don't want to bleed energy on repetitive release work**
+- **Want bisectable commits** — logical chunks, not one giant commit
+
+<Note>
+**This is release machine mode.** Once you've decided what to build, nailed the technical plan, and run a serious review, you don't want more talking. You want execution.
+</Note>
+
+## Philosophy
+
+From the README:
+
+> Once I have decided what to build, nailed the technical plan, and run a serious review, I do not want more talking. I want execution.
+
+`/ship` is for the final mile. It's for a ready branch, not for deciding what to build.
+
+This is where the model should stop behaving like a brainstorm partner and start behaving like a disciplined release engineer.
+
+**Momentum matters here.** A lot of branches die when the interesting work is done and only the boring release work is left. Humans procrastinate that part. AI should not.
+
+## What It Does
+
+<Steps>
+  <Step title="Pre-flight">
+    - Check current branch (abort if on `main`)
+    - Run `git status` (uncommitted changes are always included)
+    - Run `git diff main...HEAD --stat` and `git log main..HEAD --oneline` to understand what's being shipped
+  </Step>
+  <Step title="Merge origin/main (BEFORE tests)">
+    - Fetch and merge `origin/main` into the feature branch
+    - Auto-resolve simple conflicts (VERSION, schema.rb, CHANGELOG ordering)
+    - If conflicts are complex, STOP and show them
+  </Step>
+  <Step title="Run tests (on merged code)">
+    Run both test suites in parallel:
+    ```bash
+    bin/test-lane 2>&1 | tee /tmp/ship_tests.txt &
+    npm run test 2>&1 | tee /tmp/ship_vitest.txt &
+    wait
+    ```
+    **If any test fails:** Show failures and STOP.
+  </Step>
+  <Step title="Eval Suites (conditional)">
+    **Evals are mandatory when prompt-related files change.**
+
+    The skill checks if the diff touches prompt-related files (from `CLAUDE.md`):
+    - `app/services/*_prompt_builder.rb`
+    - `app/services/*_generation_service.rb`, `*_writer_service.rb`, etc.
+    - `config/system_prompts/*.txt`
+    - `test/evals/**/*`
+
+    If yes, it identifies affected eval suites by grepping `PROMPT_SOURCE_FILES` in eval runners, then runs them at `EVAL_JUDGE_TIER=full` (Sonnet structural + Opus persona judges).
+
+    **If any eval fails:** Show failures, cost dashboard, and STOP.
+
+    **If no prompt files changed:** Print "No prompt-related files changed — skipping evals." and continue.
+  </Step>
+  <Step title="Pre-Landing Review">
+    - Read `.claude/skills/review/checklist.md`
+    - Run `git diff origin/main`
+    - Apply review checklist in two passes (CRITICAL, then INFORMATIONAL)
+    - Output findings
+
+    **If CRITICAL issues found:** For EACH critical issue, AskUserQuestion:
+    - A) Fix it now (recommend)
+    - B) Acknowledge and ship anyway
+    - C) It's a false positive — skip
+
+    If user chose A (fix) on any issue:
+    - Apply fixes
+    - Commit fixed files
+    - STOP and tell user to run `/ship` again to re-test with fixes applied
+
+    If user chose only B or C, continue.
+  </Step>
+  <Step title="Address Greptile review comments (if PR exists)">
+    - Fetch Greptile review comments from the PR
+    - Classify each: VALID & ACTIONABLE, VALID BUT ALREADY FIXED, FALSE POSITIVE, SUPPRESSED
+    - For VALID & ACTIONABLE: AskUserQuestion (A: Fix now, B: Acknowledge, C: False positive)
+    - For VALID BUT ALREADY FIXED: Auto-reply acknowledging the catch
+    - For FALSE POSITIVE: AskUserQuestion (A: Reply explaining FP, B: Fix anyway, C: Ignore)
+    - For SUPPRESSED: Skip silently
+
+    **If any fixes were applied:** Re-run tests (Step 3) before continuing.
+
+    **If no PR exists:** Skip this step silently.
+  </Step>
+  <Step title="Version bump (auto-decide)">
+    - Read current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
+    - Auto-decide bump level:
+      - **MICRO** (4th digit): < 50 lines changed, trivial tweaks
+      - **PATCH** (3rd digit): 50+ lines changed, bug fixes, small-medium features
+      - **MINOR** (2nd digit): **ASK the user** — major features or significant architectural changes
+      - **MAJOR** (1st digit): **ASK the user** — milestones or breaking changes
+    - Write new version to `VERSION` file
+  </Step>
+  <Step title="CHANGELOG (auto-generate)">
+    - Use `git log main..HEAD --oneline` and `git diff main...HEAD` to understand ALL changes
+    - Generate entry from ALL commits on the branch (not just recent ones)
+    - Categorize into: Added, Changed, Fixed, Removed
+    - Insert after file header (line 5), dated today
+    - Format: `## [X.Y.Z.W] - YYYY-MM-DD`
+  </Step>
+  <Step title="Commit (bisectable chunks)">
+    Create small, logical commits that work well with `git bisect`.
+
+    **Commit ordering:**
+    1. Infrastructure (migrations, config, routes)
+    2. Models & services (with their tests)
+    3. Controllers & views (with their tests)
+    4. VERSION + CHANGELOG (final commit)
+
+    **Each commit must be independently valid** — no broken imports, no references to code that doesn't exist yet.
+
+    Only the final commit (VERSION + CHANGELOG) gets the version tag and co-author trailer:
+    ```
+    chore: bump version and changelog (vX.Y.Z.W)
+
+    Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+    ```
+  </Step>
+  <Step title="Push">
+    ```bash
+    git push -u origin <branch-name>
+    ```
+  </Step>
+  <Step title="Create PR">
+    ```bash
+    gh pr create --title "<type>: <summary>" --body "$(cat <<'EOF'
+    ## Summary
+    <bullet points from CHANGELOG>
+
+    ## Pre-Landing Review
+    <findings or "No issues found.">
+
+    ## Eval Results
+    <suite names, pass/fail, cost summary OR "No prompt-related files changed">
+
+    ## Greptile Review
+    <bullet list with [FIXED]/[FALSE POSITIVE]/[ALREADY FIXED] tags OR "No Greptile comments.">
+
+    ## Test plan
+    - [x] All Rails tests pass (N runs, 0 failures)
+    - [x] All Vitest tests pass (N tests)
+
+    🤖 Generated with Claude Code
+    EOF
+    )"
+    ```
+
+    **Output the PR URL** — this should be the final output the user sees.
+  </Step>
+</Steps>
+
+## Important Rules
+
+- **Never skip tests.** If tests fail, stop.
+- **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
+- **Never force push.** Use regular `git push` only.
+- **Never ask for confirmation** except for MINOR/MAJOR version bumps and CRITICAL review findings (one AskUserQuestion per critical issue with fix recommendation).
+- **Always use the 4-digit version format** from the VERSION file.
+- **Date format in CHANGELOG:** `YYYY-MM-DD`
+- **Split commits for bisectability** — each commit = one logical change.
+- **The goal is: user says `/ship`, next thing they see is the review + PR URL.**
+
+## Only Stop For
+
+- On `main` branch (abort)
+- Merge conflicts that can't be auto-resolved (stop, show conflicts)
+- Test failures (stop, show failures)
+- Pre-landing review finds CRITICAL issues and user chooses to fix (not acknowledge or skip)
+- MINOR or MAJOR version bump needed (ask)
+- Greptile review comments that need user decision (complex fixes, false positives)
+
+## Never Stop For
+
+- Uncommitted changes (always include them)
+- Version bump choice (auto-pick MICRO or PATCH)
+- CHANGELOG content (auto-generate from diff)
+- Commit message approval (auto-commit)
+- Multi-file changesets (auto-split into bisectable commits)
+
+## Example Workflow
+
+```
+You:   /ship
+
+Claude: [Merges origin/main, runs tests...]
+
+        Rails: 247 runs, 0 failures (3.2s)
+        Vitest: 184 tests passed (1.8s)
+
+        No prompt-related files changed — skipping evals.
+
+        Pre-Landing Review: 1 issue (1 critical, 0 informational)
+        + 3 Greptile comments (1 valid, 1 fixed, 1 FP)
+
+        ## CRITICAL
+
+        [SQL & DATA SAFETY] app/services/payment_service.rb:47
+        Race condition: concurrent charges can double-debit.
+
+        We recommend A: Add advisory lock. Here's why: Payment
+        operations must be race-safe. Fix is 3 lines.
+
+        A) Fix it now — wrap charge in `with_advisory_lock`
+        B) Acknowledge and ship anyway
+        C) It's a false positive
+
+You:   A
+
+Claude: [Applies fix, commits]
+
+        Applied advisory lock. Committed: fix: address pre-landing
+        review — advisory lock on concurrent charges
+
+        ## Greptile Review
+
+        [ALREADY FIXED] app/models/user.rb:12 — Missing null check
+        on email before downcase. Already fixed in commit abc1234.
+        Auto-replying.
+
+        [FALSE POSITIVE] lib/auth.rb:88 — "Token comparison should
+        use constant-time comparison." We already use
+        ActiveSupport::SecurityUtils.secure_compare.
+
+        A) Reply to Greptile explaining
+        B) Fix it anyway
+        C) Ignore
+
+You:   A
+
+Claude: Replied to Greptile. Re-running tests after the fix...
+
+        Rails: 247 runs, 0 failures (3.1s)
+        Vitest: 184 tests passed (1.7s)
+
+        All tests pass. Continuing to version bump.
+
+        [Auto-picks PATCH bump: 0.19.1.0 → 0.19.2.0]
+        [Generates CHANGELOG entry]
+        [Creates 4 bisectable commits]
+        [Pushes branch]
+        [Creates PR]
+
+        PR: https://github.com/you/app/pull/42
+```
+
+## Greptile Integration
+
+See the [Greptile integration section](/skills/review#greptile-integration) in the `/review` skill docs for full details.
+
+**TL;DR:** Greptile reviews PRs automatically. `/ship` triages its comments, fixes valid issues, replies to false positives, and saves patterns to `~/.gstack/greptile-history.md` for future learning.
+
+## Usage
+
+```bash
+/ship
+```
+
+The skill will run all 10 steps and output the PR URL.
+
+## Related Skills
+
+- **[review](/skills/review)** — Paranoid staff engineer mode: the pre-landing review that `/ship` runs in Step 3.5.
+- **[qa](/skills/qa)** — QA lead mode: systematic QA testing. Use after shipping to verify everything works.
+- **[retro](/skills/retro)** — Engineering manager mode: weekly retrospective analyzing what shipped.

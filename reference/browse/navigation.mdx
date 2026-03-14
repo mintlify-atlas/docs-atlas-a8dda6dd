@@ -1,0 +1,205 @@
+---
+title: Navigation Commands
+description: Navigate web pages, manage browser history, and control page navigation in gstack browse
+---
+
+Navigation commands allow you to control page navigation and browse history in your headless browser session.
+
+## goto
+
+Navigate to a specific URL.
+
+### Syntax
+
+```bash
+$B goto <url>
+```
+
+<ParamField path="url" type="string" required>
+  The URL to navigate to. Can include protocol (https://) or default to https if omitted.
+</ParamField>
+
+### Examples
+
+```bash
+# Navigate to a website
+$B goto https://example.com
+
+# Navigate to a local server
+$B goto http://localhost:3000
+
+# Navigate to a staging environment
+$B goto https://staging.myapp.com/dashboard
+```
+
+### Return Value
+
+Returns the final URL after any redirects, or an error if navigation fails.
+
+### Common Use Cases
+
+- Starting a test session on a specific page
+- Navigating to different environments (dev, staging, prod)
+- Testing deep links and specific routes
+- Verifying redirect behavior
+
+<Note>
+  The first `goto` command will start the browser server (~3s), subsequent commands are ~100ms.
+</Note>
+
+<Warning>
+  After navigation, any @e or @c refs from previous snapshots are invalidated. Run `snapshot` again to get fresh refs.
+</Warning>
+
+---
+
+## back
+
+Navigate backwards in browser history.
+
+### Syntax
+
+```bash
+$B back
+```
+
+### Examples
+
+```bash
+# Navigate to a page, then go back
+$B goto https://example.com/page1
+$B click "a[href='/page2']"
+$B back  # Returns to page1
+```
+
+### Return Value
+
+Returns success or error if there is no history to go back to.
+
+### Common Use Cases
+
+- Testing browser history behavior
+- Verifying back navigation preserves state
+- Testing multi-step workflows where users might go back
+
+---
+
+## forward
+
+Navigate forward in browser history.
+
+### Syntax
+
+```bash
+$B forward
+```
+
+### Examples
+
+```bash
+# Navigate forward after going back
+$B goto https://example.com/page1
+$B goto https://example.com/page2
+$B back
+$B forward  # Returns to page2
+```
+
+### Return Value
+
+Returns success or error if there is no forward history.
+
+### Common Use Cases
+
+- Testing forward navigation behavior
+- Verifying history stack integrity
+- Testing browser navigation UI
+
+---
+
+## reload
+
+Reload the current page.
+
+### Syntax
+
+```bash
+$B reload
+```
+
+### Examples
+
+```bash
+# Verify page loads correctly after reload
+$B goto https://example.com
+$B reload
+$B console  # Check for errors after reload
+
+# Test that form state is cleared on reload
+$B fill "#username" "test"
+$B reload
+$B js "document.querySelector('#username').value"  # Should be empty
+```
+
+### Return Value
+
+Returns success when the page has fully reloaded.
+
+### Common Use Cases
+
+- Testing page load behavior
+- Verifying form state is cleared
+- Testing cache behavior
+- Debugging intermittent load issues
+
+<Tip>
+  Use `reload` combined with `console` and `network` to debug page load issues.
+</Tip>
+
+---
+
+## url
+
+Print the current page URL.
+
+### Syntax
+
+```bash
+$B url
+```
+
+### Examples
+
+```bash
+# Verify a redirect happened
+$B goto https://example.com/old-path
+$B url  # Might show https://example.com/new-path
+
+# Check current location after navigation
+$B click "a[href='/dashboard']"
+$B url  # Verify you're on /dashboard
+```
+
+### Return Value
+
+Returns the current page URL as a string.
+
+### Common Use Cases
+
+- Verifying redirects work correctly
+- Asserting navigation happened
+- Debugging unexpected navigation
+- Checking URL parameters after navigation
+
+```bash
+# Example: Verify login redirect
+$B goto https://app.com/login
+$B fill "#email" "user@example.com"
+$B fill "#password" "password123"
+$B click "#submit"
+$B wait "--load"
+$B url  # Should be https://app.com/dashboard
+```
+
+<Note>
+  The URL includes the full path, query parameters, and hash fragment.
+</Note>

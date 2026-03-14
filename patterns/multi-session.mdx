@@ -1,0 +1,511 @@
+---
+title: 'Multi-Session Workflows'
+description: 'Run 10 parallel Claude sessions with isolated browser instances using Conductor'
+icon: 'grid-2'
+---
+
+## Overview
+
+gstack is powerful with one Claude Code session. It is **transformative with ten**.
+
+[Conductor](https://conductor.build) runs multiple Claude Code sessions in parallel — each in its own isolated workspace. That means you can have one session running `/qa` on staging, another doing `/review` on a PR, a third implementing a feature, and seven more working on other branches. All at the same time.
+
+<Note>
+**This is the setup I use.** One person, ten parallel agents, each with the right cognitive mode for its task. That is not incremental improvement. That is a different way of building software.
+
+— Garry Tan, President & CEO of Y Combinator
+</Note>
+
+## Conductor Integration
+
+gstack includes a `conductor.json` configuration file that defines lifecycle hooks for workspace setup and teardown:
+
+```json conductor.json
+{
+  "scripts": {
+    "setup": "bin/dev-setup",
+    "archive": "bin/dev-teardown"
+  }
+}
+```
+
+When Conductor creates a new workspace, it automatically:
+1. Runs `bin/dev-setup` to symlink skills from the main repo
+2. Copies `.env` from main worktree into the workspace
+3. Propagates environment variables needed for development
+
+When archiving a workspace:
+1. Runs `bin/dev-teardown` to clean up symlinks
+2. Removes workspace-specific state
+
+## Isolated Browser Instances
+
+Each workspace gets its own **completely isolated** browser instance:
+
+<Tabs>
+  <Tab title="Separate Chromium Processes">
+    Every workspace runs its own headless Chromium daemon. No shared state between workspaces.
+
+    ```
+    Workspace A: Chromium PID 12345
+    Workspace B: Chromium PID 23456  
+    Workspace C: Chromium PID 34567
+    ```
+
+    Each process has:
+    - Independent cookie store
+    - Separate localStorage/sessionStorage
+    - Isolated tab state
+    - Own network cache
+  </Tab>
+
+  <Tab title="Project-Local State">
+    All browser state lives in `.gstack/` inside each project root:
+
+    ```
+    /code/project-a/.gstack/
+    ├── browse.json           # Server state (PID, port, token)
+    ├── browse-console.log    # Console output
+    ├── browse-network.log    # Network requests
+    └── browse-dialog.log     # Dialog events
+
+    /code/project-b/.gstack/
+    ├── browse.json
+    ├── browse-console.log
+    ├── browse-network.log
+    └── browse-dialog.log
+    ```
+
+    State is detected via `git rev-parse --show-toplevel` — works automatically in any git repo.
+  </Tab>
+
+  <Tab title="Random Port Selection">
+    Each server picks a random port between 10000-60000. No collisions, no configuration.
+
+    | Workspace | State file | Port |
+    |-----------|------------|------|
+    | `/code/project-a` | `/code/project-a/.gstack/browse.json` | 34521 |
+    | `/code/project-b` | `/code/project-b/.gstack/browse.json` | 47893 |
+    | `/code/project-c` | `/code/project-c/.gstack/browse.json` | 12456 |
+
+    **No port collisions. No shared state. Each project is fully isolated.**
+  </Tab>
+
+  <Tab title="Bearer Token Auth">
+    Each server generates a unique UUID bearer token, written to `browse.json` with mode 0o600 (owner-only read).
+
+    ```json .gstack/browse.json
+    {
+      "pid": 12345,
+      "port": 34521,
+      "token": "550e8400-e29b-41d4-a716-446655440000",
+      "startedAt": "2026-03-14T10:30:00Z",
+      "binaryVersion": "abc123def456"
+    }
+    ```
+
+    Every HTTP request must include `Authorization: Bearer <token>`. This prevents other processes on the machine from controlling the wrong browser.
+  </Tab>
+</Tabs>
+
+## Directory Isolation
+
+From `browse/src/config.ts`, here's how state directories are resolved:
+
+```typescript
+export function resolveConfig(
+  env: Record<string, string | undefined> = process.env,
+): BrowseConfig {
+  let stateFile: string;
+  let stateDir: string;
+  let projectDir: string;
+
+  if (env.BROWSE_STATE_FILE) {
+    // Explicit override (used by tests and special cases)
+    stateFile = env.BROWSE_STATE_FILE;
+    stateDir = path.dirname(stateFile);
+    projectDir = path.dirname(stateDir); // parent of .gstack/
+  } else {
+    // Auto-detect: git root or cwd
+    projectDir = getGitRoot() || process.cwd();
+    stateDir = path.join(projectDir, '.gstack');
+    stateFile = path.join(stateDir, 'browse.json');
+  }
+
+  return {
+    projectDir,
+    stateDir,
+    stateFile,
+    consoleLog: path.join(stateDir, 'browse-console.log'),
+    networkLog: path.join(stateDir, 'browse-network.log'),
+    dialogLog: path.join(stateDir, 'browse-dialog.log'),
+  };
+}
+```
+
+<Steps>
+  <Step title="Git root detection">
+    ```bash
+    git rev-parse --show-toplevel
+    ```
+
+    Returns the root of the git repository. Works in any subdirectory.
+  </Step>
+
+  <Step title="State directory creation">
+    ```typescript
+    stateDir = path.join(projectDir, '.gstack');
+    fs.mkdirSync(stateDir, { recursive: true });
+    ```
+
+    Creates `.gstack/` if it doesn't exist. Fails with clear error on permission issues.
+  </Step>
+
+  <Step title="Atomic state writes">
+    ```typescript
+    // Write to temp file first
+    fs.writeFileSync(stateFile + '.tmp', JSON.stringify(state), { mode: 0o600 });
+    
+    // Atomic rename
+    fs.renameSync(stateFile + '.tmp', stateFile);
+    ```
+
+    Prevents partial reads if CLI checks state mid-write.
+  </Step>
+</Steps>
+
+## Port Selection Strategy
+
+The old approach (scanning ports 9400-9409) broke constantly in multi-workspace setups. The new approach eliminates port collisions entirely:
+
+```typescript
+// Random port between 10000-60000, retry up to 5 times on collision
+const MIN_PORT = 10000;
+const MAX_PORT = 60000;
+const MAX_RETRIES = 5;
+
+for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+  const port = Math.floor(Math.random() * (MAX_PORT - MIN_PORT) + MIN_PORT);
+  
+  try {
+    // Try to bind
+    const server = Bun.serve({ port, ... });
+    return server;
+  } catch (err) {
+    if (attempt === MAX_RETRIES - 1) throw err;
+    // Retry with different random port
+  }
+}
+```
+
+<Note>
+With a 50,000-port range, the probability of collision with 10 workspaces is < 0.2%. In practice, collisions never happen.
+</Note>
+
+## Multi-Workspace Example
+
+Here's what running 10 parallel sessions looks like:
+
+<CodeGroup>
+```bash Workspace 1: QA on Staging
+Project: /code/myapp
+Branch: main
+Command: /qa https://staging.myapp.com
+
+Browser:
+  PID: 12345
+  Port: 34521
+  State: /code/myapp/.gstack/browse.json
+  Status: Testing 12 pages, 5 minutes in
+```
+
+```bash Workspace 2: Feature Development  
+Project: /code/myapp
+Branch: feature/photo-upload
+Command: Implementing upload → classify → enrich pipeline
+
+Browser:
+  PID: 23456
+  Port: 47893
+  State: /code/myapp-feature-photo-upload/.gstack/browse.json
+  Status: Idle (no /browse or /qa active)
+```
+
+```bash Workspace 3: PR Review
+Project: /code/myapp
+Branch: feature/billing-refactor  
+Command: /review
+
+Browser:
+  PID: 34567
+  Port: 12456
+  State: /code/myapp-feature-billing/.gstack/browse.json
+  Status: Idle (review mode doesn't need browser)
+```
+
+```bash Workspace 4: Diff-Aware QA
+Project: /code/myapp
+Branch: feature/search-filters
+Command: /qa
+
+Browser:
+  PID: 45678  
+  Port: 29384
+  State: /code/myapp-feature-search/.gstack/browse.json
+  Status: Testing 3 affected routes on localhost:3000
+```
+</CodeGroup>
+
+**Each workspace is completely independent:**
+- Separate git worktrees
+- Isolated `.gstack/` state directories
+- Independent Chromium processes
+- No port collisions
+- No cookie/session bleeding
+
+## State Management
+
+### Server Lifecycle
+
+<Steps>
+  <Step title="First call in workspace">
+    CLI checks `.gstack/browse.json`. File doesn't exist → spawns server in background.
+
+    Server:
+    1. Launches headless Chromium via Playwright (~3s)
+    2. Picks random port (10000-60000)
+    3. Generates UUID bearer token
+    4. Writes state file atomically (mode 0o600)
+    5. Starts accepting HTTP requests
+  </Step>
+
+  <Step title="Subsequent calls">
+    CLI reads state file → sends HTTP POST with bearer token → prints response.
+
+    Round trip: ~100-200ms including Chromium work.
+  </Step>
+
+  <Step title="Idle shutdown">
+    After 30 minutes with no commands, server:
+    1. Closes Chromium
+    2. Deletes state file
+    3. Exits cleanly
+
+    Next call in that workspace auto-restarts the server.
+  </Step>
+
+  <Step title="Crash recovery">
+    If Chromium crashes:
+    1. Server exits immediately (no self-healing)
+    2. State file becomes stale (PID is dead)
+    3. Next CLI call detects dead server
+    4. Spawns fresh server automatically
+  </Step>
+</Steps>
+
+### Version Auto-Restart
+
+The build writes `git rev-parse HEAD` to `browse/dist/.version`.
+
+On each CLI invocation:
+```typescript
+const binaryVersion = readVersionHash();
+const serverState = JSON.parse(fs.readFileSync(stateFile));
+
+if (binaryVersion !== serverState.binaryVersion) {
+  // Kill old server
+  process.kill(serverState.pid, 'SIGTERM');
+  
+  // Start new server with updated binary
+  spawnServer();
+}
+```
+
+<Note>
+**Prevents stale binary bugs entirely.** Rebuild the binary, next command in any workspace picks it up automatically.
+</Note>
+
+## Environment Variables
+
+Override default behavior when needed:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BROWSE_PORT` | 0 (random) | Fixed port for debugging |
+| `BROWSE_IDLE_TIMEOUT` | 1800000 (30 min) | Idle shutdown timeout in ms |
+| `BROWSE_STATE_FILE` | `.gstack/browse.json` | Custom state file path |
+| `BROWSE_SERVER_SCRIPT` | auto-detected | Path to server.ts |
+
+### Development Override
+
+For local gstack development across multiple workspaces:
+
+```bash
+# In main gstack repo
+bun run build
+
+# In test workspace
+export BROWSE_SERVER_SCRIPT=/path/to/gstack/browse/src/server.ts
+/browse goto https://example.com
+```
+
+CLI uses the development server script instead of the installed version.
+
+## Cleanup and Maintenance
+
+### Manual Cleanup
+
+If a workspace gets corrupted:
+
+```bash
+# Kill all browse servers
+pkill -f "browse/src/server.ts"
+
+# Remove all state files
+find . -name ".gstack" -type d -exec rm -rf {} +
+
+# Next /browse or /qa call will start fresh
+```
+
+### Legacy Cleanup
+
+Older versions used `/tmp/browse-server*.json`. The CLI auto-cleans these on startup:
+
+```typescript
+// Scan for old state files
+const legacyFiles = fs.readdirSync('/tmp')
+  .filter(f => f.startsWith('browse-server') && f.endsWith('.json'));
+
+for (const file of legacyFiles) {
+  const state = JSON.parse(fs.readFileSync(`/tmp/${file}`));
+  
+  // Verify PID ownership before sending signal
+  if (isPIDOwned(state.pid)) {
+    process.kill(state.pid, 'SIGTERM');
+  }
+  
+  fs.unlinkSync(`/tmp/${file}`);
+}
+```
+
+## Best Practices
+
+<Warning>
+**Don't share `.gstack/` directories between workspaces.** Each workspace must have its own state directory. Sharing causes port collisions and corrupted state.
+</Warning>
+
+1. **Let Conductor manage workspaces** — The `conductor.json` lifecycle hooks handle setup/teardown automatically.
+
+2. **One workspace per feature branch** — Keeps browser state isolated to the feature being developed.
+
+3. **Use diff-aware QA in workspaces** — Just say `/qa` on feature branches. No need to specify URLs.
+
+4. **Clean up old workspaces** — Conductor's archive script (`bin/dev-teardown`) removes state automatically.
+
+5. **Monitor port usage** — With 10+ workspaces, check for port exhaustion: `lsof -i :10000-60000 | wc -l`
+
+## Troubleshooting
+
+### "Address already in use" error
+
+Rare with random port selection, but if it happens:
+
+```bash
+# Check what's using the port
+lsof -i :34521
+
+# Kill the conflicting process
+kill -9 <PID>
+
+# Or let the CLI retry (happens automatically)
+```
+
+### Stale state file
+
+If CLI says "server not responding":
+
+```bash
+# Check if PID in state file is alive
+cat .gstack/browse.json | jq '.pid'
+ps -p <PID>
+
+# If dead, remove state file
+rm .gstack/browse.json
+
+# Next command will start fresh server
+```
+
+### Multiple servers in one workspace
+
+Shouldn't happen, but if you see multiple browse servers:
+
+```bash
+# Find all browse servers in this workspace  
+ps aux | grep "browse/src/server.ts" | grep $(pwd)
+
+# Kill extras (keep newest PID)
+kill <old-PIDs>
+
+# Remove state file and restart
+rm .gstack/browse.json
+```
+
+## Performance Characteristics
+
+<Tabs>
+  <Tab title="Latency">
+    | Operation | First call | Subsequent calls |
+    |-----------|-----------|------------------|
+    | CLI startup | ~1ms | ~1ms |
+    | Server start | ~3000ms | — |
+    | Command round-trip | — | ~100-200ms |
+    | Total (first) | ~3001ms | — |
+    | Total (subsequent) | — | ~101-201ms |
+  </Tab>
+
+  <Tab title="Memory">
+    Per workspace:
+    - Chromium process: ~150-300 MB
+    - Server process: ~50-80 MB
+    - Circular buffers: ~10 MB (console/network/dialog)
+    - State file: ~1 KB
+
+    **10 workspaces = ~2-4 GB total**
+  </Tab>
+
+  <Tab title="Disk">
+    Per workspace:
+    - State file: ~1 KB
+    - Console log: grows unbounded (flush async)
+    - Network log: grows unbounded
+    - Dialog log: grows unbounded
+    - Screenshots: varies by `/qa` usage
+
+    **Logs are append-only, never truncated.**
+  </Tab>
+
+  <Tab title="CPU">
+    - Idle server: ~0% CPU
+    - Active browsing: 5-20% CPU per workspace
+    - Screenshot rendering: 20-40% CPU spike
+
+    **10 concurrent `/qa` runs: 50-200% CPU total**
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Feature Workflow" icon="workflow" href="/patterns/feature-workflow">
+    See how multi-session fits into the dev workflow
+  </Card>
+  <Card title="QA Testing" icon="vial" href="/patterns/qa-testing">
+    Run QA in parallel across multiple branches
+  </Card>
+  <Card title="Browse Skill" icon="browser" href="/skills/browse">
+    Complete browser command reference
+  </Card>
+  <Card title="Conductor" icon="external-link" href="https://conductor.build">
+    Learn more about Conductor workspaces
+  </Card>
+</CardGroup>

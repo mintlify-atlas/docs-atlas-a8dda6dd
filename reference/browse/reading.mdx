@@ -1,0 +1,286 @@
+---
+title: Reading Commands
+description: Extract text, HTML, links, forms, and accessibility information from web pages
+---
+
+Reading commands allow you to extract content and structure from web pages without modifying them.
+
+## text
+
+Get cleaned, readable text content from the current page.
+
+### Syntax
+
+```bash
+$B text
+```
+
+### Examples
+
+```bash
+# Get page content
+$B goto https://example.com
+$B text
+
+# Verify specific content is present
+$B goto https://docs.example.com
+$B text | grep "Getting Started"
+
+# Compare content before and after action
+$B snapshot
+$B click @e5
+$B text  # See what changed
+```
+
+### Return Value
+
+Returns the visible text content of the page, cleaned and formatted for readability. Excludes hidden elements, scripts, and styles.
+
+### Common Use Cases
+
+- Verifying page content loaded correctly
+- Searching for specific text
+- Comparing content between pages
+- Extracting readable content for analysis
+
+<Tip>
+  Use `text` for content verification and `snapshot -D` for structural changes.
+</Tip>
+
+---
+
+## html
+
+Get the HTML content of an element or the entire page.
+
+### Syntax
+
+```bash
+$B html [selector]
+```
+
+<ParamField path="selector" type="string">
+  Optional CSS selector or @ref. If omitted, returns full page HTML. Throws an error if selector doesn't match any element.
+</ParamField>
+
+### Examples
+
+```bash
+# Get full page HTML
+$B html
+
+# Get HTML of specific element
+$B html ".main-content"
+
+# Get HTML using snapshot ref
+$B snapshot -i
+$B html @e3
+
+# Extract a component's HTML
+$B html "#user-profile"
+```
+
+### Return Value
+
+Returns the innerHTML of the matched element, or the full page HTML if no selector is provided.
+
+### Common Use Cases
+
+- Inspecting DOM structure
+- Verifying dynamic content rendering
+- Extracting component markup
+- Debugging rendering issues
+
+<Warning>
+  If the selector matches no elements, the command will throw an error.
+</Warning>
+
+```bash
+# Example: Verify a component rendered with correct attributes
+$B goto https://app.com/dashboard
+$B html "[data-testid='user-card']"
+# Returns: <div class="card"><h3>John Doe</h3>...</div>
+```
+
+---
+
+## links
+
+Get all links on the page in a readable format.
+
+### Syntax
+
+```bash
+$B links
+```
+
+### Examples
+
+```bash
+# List all links on a page
+$B goto https://example.com
+$B links
+
+# Find specific links
+$B links | grep "documentation"
+
+# Verify navigation structure
+$B goto https://myapp.com
+$B links | grep "Dashboard\|Settings\|Profile"
+```
+
+### Return Value
+
+Returns all links formatted as `"link text → href"`, one per line.
+
+Example output:
+```
+Home → /
+About → /about
+Contact Us → /contact
+Documentation → https://docs.example.com
+```
+
+### Common Use Cases
+
+- Verifying navigation menus
+- Finding broken or incorrect links
+- Auditing external links
+- Testing link text and accessibility
+
+```bash
+# Example: Verify all main navigation links are present
+$B goto https://myapp.com
+$B links | grep -E "Home|Products|Pricing|Contact"
+```
+
+---
+
+## forms
+
+Get all form fields on the page as structured JSON.
+
+### Syntax
+
+```bash
+$B forms
+```
+
+### Examples
+
+```bash
+# Inspect form structure
+$B goto https://example.com/signup
+$B forms
+
+# Verify form fields are present
+$B forms | grep -E "email|password|username"
+
+# Check form field types and attributes
+$B goto https://checkout.example.com
+$B forms  # See all payment form fields
+```
+
+### Return Value
+
+Returns JSON array of form fields with their properties:
+- `type`: Input type (text, email, password, checkbox, etc.)
+- `name`: Field name attribute
+- `id`: Field ID attribute
+- `value`: Current value
+- `required`: Whether field is required
+- `placeholder`: Placeholder text
+
+Example output:
+```json
+[
+  {
+    "type": "email",
+    "name": "email",
+    "id": "user-email",
+    "required": true,
+    "placeholder": "Enter your email"
+  },
+  {
+    "type": "password",
+    "name": "password",
+    "id": "user-password",
+    "required": true
+  }
+]
+```
+
+### Common Use Cases
+
+- Verifying form structure
+- Testing form validation setup
+- Checking required fields
+- Auditing form accessibility
+
+<Tip>
+  Combine `forms` with `snapshot -i` to see both form structure and interactive elements.
+</Tip>
+
+---
+
+## accessibility
+
+Get the full ARIA accessibility tree for the page.
+
+### Syntax
+
+```bash
+$B accessibility
+```
+
+### Examples
+
+```bash
+# Get full accessibility tree
+$B goto https://example.com
+$B accessibility
+
+# Check accessibility of a specific section
+$B goto https://app.com/dashboard
+$B accessibility | grep -A 10 "navigation"
+
+# Verify proper heading hierarchy
+$B accessibility | grep "heading"
+```
+
+### Return Value
+
+Returns the complete ARIA accessibility tree showing roles, names, states, and hierarchy of all elements.
+
+Example output:
+```
+WebArea "Page Title"
+  banner
+    heading "Welcome" [level=1]
+  navigation "Main Navigation"
+    link "Home"
+    link "About"
+  main
+    heading "Section Title" [level=2]
+    paragraph
+    button "Submit"
+```
+
+### Common Use Cases
+
+- Auditing accessibility
+- Verifying ARIA roles and labels
+- Checking semantic HTML structure
+- Testing screen reader compatibility
+- Verifying heading hierarchy
+
+<Note>
+  Use `snapshot` for interactive testing with @refs, and `accessibility` for comprehensive accessibility audits.
+</Note>
+
+```bash
+# Example: Verify proper heading structure
+$B goto https://docs.example.com
+$B accessibility | grep "heading"
+# Should show hierarchical heading levels (1, 2, 3...)
+```

@@ -1,0 +1,270 @@
+---
+title: Installation
+description: Install gstack globally or per-project to get eight specialized workflow skills for Claude Code
+---
+
+gstack turns Claude Code from one generic assistant into a team of specialists you can summon on demand. Eight opinionated workflow skills: plan review, code review, one-command shipping, browser automation, QA testing, and engineering retrospectives — all as slash commands.
+
+## Requirements
+
+Before installing gstack, ensure you have:
+
+- **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** - The AI coding assistant from Anthropic
+- **[Git](https://git-scm.com/)** - Version control system
+- **[Bun](https://bun.sh/)** v1.0+ - JavaScript runtime and toolkit
+
+<Note>
+The `/browse` skill compiles a native binary during setup. It works on macOS and Linux (both x64 and arm64 architectures).
+</Note>
+
+## Global Installation
+
+Install gstack on your machine to use it across all your Claude Code sessions.
+
+<Steps>
+  <Step title="Install gstack">
+    Open Claude Code and paste this command. Claude will handle the installation:
+
+    ```bash
+    git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup
+    ```
+
+    The setup script will:
+    - Install Node dependencies with `bun install`
+    - Compile the browser binary (~58MB, takes ~10 seconds)
+    - Install Playwright's Chromium browser
+    - Create skill symlinks in `~/.claude/skills/`
+  </Step>
+
+  <Step title="Update CLAUDE.md">
+    Add a "gstack" section to your `~/.claude/CLAUDE.md` (or ask Claude to do this):
+
+    ```markdown
+    ## gstack
+
+    Use the /browse skill from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
+
+    Available skills:
+    - /plan-ceo-review - Rethink the problem, find the 10-star product
+    - /plan-eng-review - Lock in architecture, data flow, diagrams, edge cases
+    - /review - Find bugs that pass CI but blow up in production
+    - /ship - Sync main, run tests, push, open PR
+    - /browse - Give the agent eyes for QA testing
+    - /qa - Systematic QA testing with health scores
+    - /setup-browser-cookies - Import browser sessions for authenticated testing
+    - /retro - Team-aware engineering retrospectives
+    ```
+  </Step>
+
+  <Step title="Verify installation">
+    Check that the browser binary exists and is executable:
+
+    ```bash
+    ls -lh ~/.claude/skills/gstack/browse/dist/browse
+    ```
+
+    You should see a ~58MB executable file.
+  </Step>
+</Steps>
+
+## Project Installation
+
+Add gstack to your repository so teammates get it automatically when they clone.
+
+<Steps>
+  <Step title="Copy gstack to project">
+    ```bash
+    cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && 
+    rm -rf .claude/skills/gstack/.git && 
+    cd .claude/skills/gstack && 
+    ./setup
+    ```
+
+    This copies the gstack directory into your project's `.claude/skills/` folder and runs setup.
+  </Step>
+
+  <Step title="Update project CLAUDE.md">
+    Add the gstack section to your project's `CLAUDE.md`:
+
+    ```markdown
+    ## gstack
+
+    Use the /browse skill from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
+
+    Available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro
+
+    If gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
+    ```
+  </Step>
+
+  <Step title="Configure .gitignore">
+    The binary and node_modules are automatically gitignored. Real skill files get committed to your repo (not as a submodule), so `git clone` just works.
+
+    Teammates only need to run `cd .claude/skills/gstack && ./setup` once after cloning.
+  </Step>
+</Steps>
+
+<Warning>
+Project installs copy real files to your repo — not a git submodule. The binary (`browse/dist/browse`) and `node_modules/` are gitignored. Your teammates will need to run the setup script once after cloning.
+</Warning>
+
+## What Gets Installed
+
+After installation, you'll have:
+
+- **Skill files** - Markdown prompts in `~/.claude/skills/gstack/` (or `.claude/skills/gstack/` for project installs)
+- **Skill symlinks** - `~/.claude/skills/browse`, `~/.claude/skills/qa`, `~/.claude/skills/review`, etc. pointing into the gstack directory
+- **Browser binary** - `browse/dist/browse` (~58MB, gitignored)
+- **Dependencies** - `node_modules/` (gitignored)
+- **Retro storage** - `/retro` saves JSON snapshots to `.context/retros/` in your project for trend tracking
+
+<Note>
+Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
+</Note>
+
+## Installation via Claude Code
+
+The easiest way to install is to ask Claude Code directly:
+
+<CodeGroup>
+```text Global Install
+Install gstack: run `git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp__claude-in-chrome__* tools, and lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro. Then ask the user if they also want to add gstack to the current project so teammates get it.
+```
+
+```text Project Install
+Add gstack to this project: run `cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup` then add a "gstack" section to this project's CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp__claude-in-chrome__* tools, lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro, and tells Claude that if gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
+```
+</CodeGroup>
+
+## Upgrading
+
+To update gstack to the latest version, paste this into Claude Code:
+
+```bash
+cd ~/.claude/skills/gstack && 
+git fetch origin && 
+git reset --hard origin/main && 
+./setup
+```
+
+If you also have a project installation, update it too:
+
+```bash
+for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do 
+  rm -f .claude/skills/$s
+done && 
+rm -rf .claude/skills/gstack && 
+cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && 
+rm -rf .claude/skills/gstack/.git && 
+cd .claude/skills/gstack && 
+./setup
+```
+
+The `setup` script rebuilds the browser binary and re-creates skill symlinks. It takes a few seconds.
+
+## Troubleshooting
+
+### Skill not showing up in Claude Code?
+
+Run the setup script to rebuild symlinks:
+
+```bash
+cd ~/.claude/skills/gstack && ./setup
+```
+
+For project installs:
+
+```bash
+cd .claude/skills/gstack && ./setup
+```
+
+### `/browse` fails or binary not found?
+
+Manually rebuild the browser binary:
+
+```bash
+cd ~/.claude/skills/gstack && 
+bun install && 
+bun run build
+```
+
+<Note>
+Requires Bun v1.0+. If you get a "bun: command not found" error, install it first.
+</Note>
+
+### `bun` not installed?
+
+Install Bun with this one-liner:
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+Then restart your terminal and run the setup script again.
+
+### Project copy is stale?
+
+Re-copy from your global installation:
+
+```bash
+for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do 
+  rm -f .claude/skills/$s
+done && 
+rm -rf .claude/skills/gstack && 
+cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && 
+rm -rf .claude/skills/gstack/.git && 
+cd .claude/skills/gstack && 
+./setup
+```
+
+### Playwright Chromium issues?
+
+The setup script automatically installs Playwright's Chromium browser. If you encounter issues:
+
+```bash
+cd ~/.claude/skills/gstack && 
+bunx playwright install chromium
+```
+
+## Uninstalling
+
+To remove gstack completely:
+
+<Steps>
+  <Step title="Remove skill symlinks">
+    ```bash
+    for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do 
+      rm -f ~/.claude/skills/$s
+    done
+    ```
+  </Step>
+
+  <Step title="Remove gstack directory">
+    ```bash
+    rm -rf ~/.claude/skills/gstack
+    ```
+  </Step>
+
+  <Step title="Remove from CLAUDE.md">
+    Delete the gstack section from your `~/.claude/CLAUDE.md` file.
+  </Step>
+</Steps>
+
+For project installations, repeat with `.claude/skills/` instead of `~/.claude/skills/`.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Get started with your first gstack workflow
+  </Card>
+  <Card title="Browse Skill" icon="browser" href="/skills/browse">
+    Learn how to use the headless browser for QA
+  </Card>
+  <Card title="Ship Workflow" icon="ship" href="/skills/ship">
+    One command to sync, test, and create a PR
+  </Card>
+  <Card title="QA Testing" icon="clipboard-check" href="/skills/qa">
+    Systematic QA testing with health scores
+  </Card>
+</CardGroup>

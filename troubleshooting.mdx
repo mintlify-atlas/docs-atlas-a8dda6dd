@@ -1,0 +1,344 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for gstack
+---
+
+This guide covers common issues you might encounter with gstack and how to resolve them.
+
+## Skill Discovery Issues
+
+### Skill not showing up in Claude Code
+
+The most common cause is missing or broken symlinks. Run the setup script to rebuild them:
+
+```bash
+# For global install
+cd ~/.claude/skills/gstack && ./setup
+
+# For project install
+cd .claude/skills/gstack && ./setup
+```
+
+<Info>
+The setup script creates symlinks in `~/.claude/skills/` or `.claude/skills/` that point to each skill directory. Claude Code discovers skills by scanning these directories.
+</Info>
+
+### Wrong version of skill is being used
+
+If you have both a global install and a project-local install, the project-local one takes priority. To check which version is active:
+
+```bash
+# Check global install
+ls -la ~/.claude/skills/browse
+
+# Check project install
+ls -la .claude/skills/browse
+```
+
+If the project copy is stale, refresh it from the global install:
+
+```bash
+for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies gstack-upgrade; do
+  rm -f .claude/skills/$s
+done
+rm -rf .claude/skills/gstack
+cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
+rm -rf .claude/skills/gstack/.git
+cd .claude/skills/gstack && ./setup
+```
+
+## Browse Binary Issues
+
+### `/browse` command fails with "binary not found"
+
+The browse binary needs to be compiled. Run the build command:
+
+```bash
+cd ~/.claude/skills/gstack  # or .claude/skills/gstack
+bun install
+bun run build
+```
+
+<Note>
+Requires [Bun](https://bun.sh/) v1.0 or later. Install with: `curl -fsSL https://bun.sh/install | bash`
+</Note>
+
+### Browse binary exists but crashes on startup
+
+This usually means Playwright's Chromium browser is missing or corrupted. Reinstall it:
+
+```bash
+cd ~/.claude/skills/gstack
+bunx playwright install chromium
+```
+
+### "No available port" error
+
+The browse server tries to find an available port in the range 10000-60000. If all ports are in use (very rare), or if there's a permission issue, you'll see this error.
+
+Check for conflicting processes:
+
+```bash
+# List processes using ports in the range
+lsof -i :10000-60000
+```
+
+### Stale server shadowing local changes
+
+<Warning>
+This was a common issue in versions before 0.3.2. The fix removed the legacy `~/.claude/skills/gstack` fallback from server resolution.
+</Warning>
+
+If you're on 0.3.2+, the server always uses the correct version. If you're on an older version, upgrade:
+
+```bash
+cd ~/.claude/skills/gstack
+git fetch origin && git reset --hard origin/main
+./setup
+```
+
+## Cookie Import Issues
+
+### "No Chromium browsers found" error
+
+The cookie import feature only works with Chromium-based browsers on macOS:
+
+- Comet
+- Chrome
+- Arc
+- Brave
+- Microsoft Edge
+
+If you have one of these browsers installed but still see this error, check that the browser profile directory exists:
+
+```bash
+# Chrome example
+ls -la "$HOME/Library/Application Support/Google/Chrome/Default/Cookies"
+```
+
+### Keychain permission denied
+
+On first import from each browser, macOS will prompt you to allow gstack to access the Keychain. Click "Allow" or "Always Allow".
+
+If you accidentally clicked "Deny", you can reset the permission:
+
+1. Open Keychain Access.app
+2. Search for "Chrome Safe Storage" (or the browser name)
+3. Right-click the entry → Get Info → Access Control
+4. Add the `browse` binary to the allowed apps list, or click "Allow all applications"
+
+### Cookies fail to decrypt
+
+If some or all cookies fail to decrypt:
+
+1. Verify the browser is fully closed (not just windows closed, but the app quit)
+2. Try importing again — sometimes the browser locks the database
+3. Check the error message in the cookie picker UI or console logs
+
+## Port Conflicts
+
+### "Port already in use" error
+
+Each project workspace gets its own browse server instance. If a server is stuck running from a previous session:
+
+```bash
+# Find the process
+ps aux | grep browse
+
+# Kill it (replace PID with actual process ID)
+kill <PID>
+```
+
+The server state file is located at `.gstack/browse.json` in your project root. You can safely delete it to reset:
+
+```bash
+rm .gstack/browse.json
+```
+
+<Info>
+In versions 0.3.2+, the browse server uses random port selection (10000-60000) and project-local state, so port conflicts across workspaces are extremely rare.
+</Info>
+
+## Update Check Issues
+
+### Update check says "upgrade available" but you're already on latest
+
+The update check caches results for 24 hours. Force a refresh:
+
+```bash
+rm ~/.gstack/last-update-check
+```
+
+Then invoke any skill — it will re-check the remote version.
+
+### Update check causes skill to fail
+
+<Warning>
+This was a bug in early 0.3.4 builds where the update check script returned exit code 1 when no update was available, causing agents to think gstack was broken. Fixed in 0.3.5.
+</Warning>
+
+If you're on 0.3.4, upgrade to 0.3.5+:
+
+```bash
+cd ~/.claude/skills/gstack
+git fetch origin && git reset --hard origin/main
+./setup
+```
+
+## Debugging and Logs
+
+### Log file locations
+
+All browse server logs are stored in `.gstack/` inside your project root:
+
+```bash
+.gstack/
+├── browse.json           # Server state (port, PID, version)
+├── browse-console.log    # Browser console messages
+├── browse-network.log    # Network requests and responses
+└── browse-dialog.log     # Dialog events (alerts, confirms, prompts)
+```
+
+<Note>
+In versions before 0.3.2, logs were stored in `/tmp/`. If you're on an older version, check `/tmp/browse-*.log`.
+</Note>
+
+### View recent console errors
+
+```bash
+tail -50 .gstack/browse-console.log | grep -E "error|warning"
+```
+
+### View recent network activity
+
+```bash
+tail -50 .gstack/browse-network.log
+```
+
+### Inspect server state
+
+```bash
+cat .gstack/browse.json | jq .
+```
+
+This shows the current port, PID, and binary version hash.
+
+### Enable verbose output
+
+Run browse commands with explicit error handling to see full Playwright stack traces:
+
+```bash
+$B goto https://example.com || echo "Command failed with exit code $?"
+```
+
+## Installation Issues
+
+### `bun` command not found
+
+Install Bun:
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+Then restart your terminal or source your shell profile:
+
+```bash
+source ~/.bashrc  # or ~/.zshrc
+```
+
+### `git` command not found
+
+Install Git:
+
+```bash
+# macOS
+brew install git
+
+# Ubuntu/Debian
+sudo apt-get install git
+```
+
+### Setup script fails with "permission denied"
+
+Make sure the setup script is executable:
+
+```bash
+chmod +x ~/.claude/skills/gstack/setup
+~/.claude/skills/gstack/setup
+```
+
+### Build fails with "cannot find module 'playwright'"
+
+Reinstall dependencies:
+
+```bash
+cd ~/.claude/skills/gstack
+rm -rf node_modules
+bun install
+bun run build
+```
+
+## Development Mode Issues
+
+### Dev mode skills not updating
+
+If you're using `bin/dev-setup` and changes to SKILL.md aren't taking effect:
+
+1. Verify the symlink exists:
+   ```bash
+   ls -la .claude/skills/browse
+   ```
+
+2. Regenerate SKILL.md files from templates:
+   ```bash
+   bun run gen:skill-docs
+   ```
+
+3. Restart Claude Code
+
+### Dev mode interfering with global install
+
+Dev mode creates project-local symlinks in `.claude/skills/` that take priority over the global install. To disable dev mode:
+
+```bash
+bin/dev-teardown
+```
+
+This removes the project-local symlinks and restores the global install.
+
+## Conductor Workspace Issues
+
+### Workspaces not getting gstack automatically
+
+Conductor runs `bin/dev-setup` automatically when creating workspaces (via `conductor.json` lifecycle hooks). If this isn't happening:
+
+1. Verify `conductor.json` exists in the repo root
+2. Check that `.env` exists in the main worktree (it gets copied to each workspace)
+3. Check the Conductor workspace logs for setup errors
+
+### API key not available in workspace
+
+The `bin/dev-setup` script copies `.env` from the main worktree to each workspace. Create `.env` in the main repo:
+
+```bash
+cp .env.example .env
+# Edit .env and add your ANTHROPIC_API_KEY
+```
+
+## Getting Help
+
+If you're still stuck after trying these solutions:
+
+1. Check the [GitHub issues](https://github.com/garrytan/gstack/issues) for similar problems
+2. Review the logs in `.gstack/browse-*.log` for error details
+3. Open a new issue with:
+   - Your gstack version (from `cat ~/.claude/skills/gstack/VERSION`)
+   - Your OS and version
+   - Full error message
+   - Relevant log output
+   - Steps to reproduce
+
+<Info>
+For questions about specific skills, see the individual SKILL.md files in each skill directory. For contributing, see [CONTRIBUTING.md](https://github.com/garrytan/gstack/blob/main/CONTRIBUTING.md).
+</Info>

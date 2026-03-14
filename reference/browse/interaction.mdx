@@ -1,0 +1,792 @@
+---
+title: Interaction Commands
+description: Click, fill forms, upload files, manage cookies, and interact with web pages
+---
+
+Interaction commands allow you to simulate user actions and modify page state.
+
+## click
+
+Click an element on the page.
+
+### Syntax
+
+```bash
+$B click <sel>
+```
+
+<ParamField path="sel" type="string" required>
+  CSS selector or @ref from snapshot.
+</ParamField>
+
+### Examples
+
+```bash
+# Click a button by CSS selector
+$B click "#submit-button"
+
+# Click using snapshot ref
+$B snapshot -i
+$B click @e3
+
+# Click cursor-interactive element
+$B snapshot -C
+$B click @c1
+
+# Click and verify result
+$B click ".toggle-menu"
+$B is visible ".dropdown-menu"
+```
+
+### Return Value
+
+Returns success or error if element not found or not clickable.
+
+### Common Use Cases
+
+- Clicking buttons and links
+- Toggling UI elements
+- Submitting forms
+- Testing interactive features
+
+<Tip>
+  Use `snapshot -C` to find divs with cursor:pointer or onclick handlers that aren't in the accessibility tree.
+</Tip>
+
+---
+
+## fill
+
+Fill an input field with a value.
+
+### Syntax
+
+```bash
+$B fill <sel> <val>
+```
+
+<ParamField path="sel" type="string" required>
+  CSS selector or @ref targeting an input element.
+</ParamField>
+
+<ParamField path="val" type="string" required>
+  Value to fill into the input.
+</ParamField>
+
+### Examples
+
+```bash
+# Fill text input
+$B fill "#username" "testuser"
+
+# Fill password
+$B fill "input[type='password']" "secretpass123"
+
+# Fill using snapshot ref
+$B snapshot -i
+$B fill @e2 "user@example.com"
+
+# Fill and submit form
+$B fill "#email" "test@example.com"
+$B fill "#password" "password123"
+$B click "#submit"
+```
+
+### Return Value
+
+Returns success or error if element not found or not fillable.
+
+### Common Use Cases
+
+- Filling login forms
+- Testing form validation
+- Entering search queries
+- Submitting user data
+
+<Note>
+  The `fill` command clears existing value before typing the new value.
+</Note>
+
+---
+
+## select
+
+Select an option from a dropdown.
+
+### Syntax
+
+```bash
+$B select <sel> <val>
+```
+
+<ParamField path="sel" type="string" required>
+  CSS selector or @ref targeting a select element.
+</ParamField>
+
+<ParamField path="val" type="string" required>
+  Option value, label, or visible text to select.
+</ParamField>
+
+### Examples
+
+```bash
+# Select by value
+$B select "#country" "US"
+
+# Select by visible text
+$B select "#size" "Large"
+
+# Select using snapshot ref
+$B snapshot -i
+$B select @e4 "Premium"
+
+# Select and verify
+$B select "#plan" "pro"
+$B js "document.querySelector('#plan').value"
+```
+
+### Return Value
+
+Returns success or error if element or option not found.
+
+### Common Use Cases
+
+- Selecting form options
+- Testing dropdown behavior
+- Configuring settings
+- Multi-step form workflows
+
+---
+
+## hover
+
+Hover over an element to trigger hover states.
+
+### Syntax
+
+```bash
+$B hover <sel>
+```
+
+<ParamField path="sel" type="string" required>
+  CSS selector or @ref.
+</ParamField>
+
+### Examples
+
+```bash
+# Hover to show tooltip
+$B hover ".info-icon"
+$B is visible ".tooltip"
+
+# Hover to reveal dropdown
+$B hover ".nav-item"
+$B snapshot -D  # See what appeared
+
+# Using snapshot ref
+$B snapshot -i
+$B hover @e5
+```
+
+### Return Value
+
+Returns success or error if element not found.
+
+### Common Use Cases
+
+- Testing tooltips
+- Revealing dropdown menus
+- Testing hover states
+- Debugging CSS :hover effects
+
+---
+
+## type
+
+Type text into the currently focused element.
+
+### Syntax
+
+```bash
+$B type <text>
+```
+
+<ParamField path="text" type="string" required>
+  Text to type.
+</ParamField>
+
+### Examples
+
+```bash
+# Click input, then type
+$B click "#search"
+$B type "test query"
+
+# Type with autocomplete
+$B click "#city"
+$B type "San"
+$B wait ".autocomplete-results"
+$B press "ArrowDown"
+$B press "Enter"
+```
+
+### Return Value
+
+Returns success or error if no element is focused.
+
+### Common Use Cases
+
+- Testing autocomplete
+- Typing into focused inputs
+- Testing keyboard input handling
+
+<Note>
+  Unlike `fill`, `type` doesn't clear existing content and types character by character.
+</Note>
+
+---
+
+## press
+
+Press a keyboard key.
+
+### Syntax
+
+```bash
+$B press <key>
+```
+
+<ParamField path="key" type="string" required>
+  Key to press: Enter, Tab, Escape, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace, Delete, Home, End, PageUp, PageDown, or modifiers like Shift+Enter.
+</ParamField>
+
+### Examples
+
+```bash
+# Submit form with Enter
+$B fill "#search" "query"
+$B press "Enter"
+
+# Navigate with arrows
+$B press "ArrowDown"
+$B press "Enter"
+
+# Escape to close modal
+$B press "Escape"
+
+# Tab through fields
+$B press "Tab"
+
+# Shift+Enter for new line
+$B press "Shift+Enter"
+```
+
+### Return Value
+
+Returns success.
+
+### Common Use Cases
+
+- Testing keyboard navigation
+- Submitting forms with Enter
+- Closing modals with Escape
+- Testing keyboard shortcuts
+
+---
+
+## scroll
+
+Scroll an element into view, or scroll to page bottom.
+
+### Syntax
+
+```bash
+$B scroll [sel]
+```
+
+<ParamField path="sel" type="string">
+  Optional CSS selector or @ref. If omitted, scrolls to page bottom.
+</ParamField>
+
+### Examples
+
+```bash
+# Scroll to bottom
+$B scroll
+
+# Scroll element into view
+$B scroll "#footer"
+
+# Scroll using snapshot ref
+$B snapshot -i
+$B scroll @e10
+
+# Infinite scroll testing
+$B scroll
+$B wait "--networkidle"
+$B scroll
+```
+
+### Return Value
+
+Returns success or error if element not found.
+
+### Common Use Cases
+
+- Testing lazy loading
+- Scrolling to footer
+- Bringing elements into viewport
+- Testing infinite scroll
+
+---
+
+## wait
+
+Wait for an element, network idle, or page load.
+
+### Syntax
+
+```bash
+$B wait <sel|--networkidle|--load>
+```
+
+<ParamField path="sel" type="string">
+  CSS selector or @ref to wait for.
+</ParamField>
+
+<ParamField path="--networkidle" type="flag">
+  Wait for network to be idle (no requests for 500ms).
+</ParamField>
+
+<ParamField path="--load" type="flag">
+  Wait for page load event.
+</ParamField>
+
+### Examples
+
+```bash
+# Wait for element
+$B click "#load-data"
+$B wait ".data-table"
+
+# Wait for network idle
+$B goto https://example.com
+$B wait "--networkidle"
+
+# Wait for page load
+$B wait "--load"
+
+# Wait with timeout (15s default)
+$B click @e5
+$B wait ".success-message"
+```
+
+### Return Value
+
+Returns success or times out after 15 seconds.
+
+### Common Use Cases
+
+- Waiting for dynamic content
+- Testing loading states
+- Waiting for API responses
+- Synchronizing test steps
+
+<Warning>
+  Commands timeout after 15 seconds. If waiting longer, break into multiple steps.
+</Warning>
+
+---
+
+## upload
+
+Upload file(s) to a file input.
+
+### Syntax
+
+```bash
+$B upload <sel> <file> [file2...]
+```
+
+<ParamField path="sel" type="string" required>
+  CSS selector or @ref targeting input[type='file'].
+</ParamField>
+
+<ParamField path="file" type="string" required>
+  Path to file to upload. Can specify multiple files for multi-file inputs.
+</ParamField>
+
+### Examples
+
+```bash
+# Upload single file
+$B upload "#file-input" "/tmp/document.pdf"
+
+# Upload multiple files
+$B upload "#photos" "/tmp/photo1.jpg" "/tmp/photo2.jpg"
+
+# Upload and verify
+$B upload @e5 "/tmp/test.csv"
+$B is visible ".upload-success"
+```
+
+### Return Value
+
+Returns success or error if element not found or not a file input.
+
+### Common Use Cases
+
+- Testing file uploads
+- Testing multi-file selection
+- Verifying upload validation
+- Testing drag-drop alternatives
+
+---
+
+## viewport
+
+Set the browser viewport size.
+
+### Syntax
+
+```bash
+$B viewport <WxH>
+```
+
+<ParamField path="WxH" type="string" required>
+  Width and height in pixels, e.g., "1920x1080".
+</ParamField>
+
+### Examples
+
+```bash
+# Mobile viewport
+$B viewport 375x812
+$B screenshot /tmp/mobile.png
+
+# Tablet viewport
+$B viewport 768x1024
+
+# Desktop viewport
+$B viewport 1920x1080
+
+# Test responsive breakpoint
+$B viewport 1024x768
+$B is visible ".desktop-nav"
+$B viewport 375x812
+$B is visible ".mobile-nav"
+```
+
+### Return Value
+
+Returns success.
+
+### Common Use Cases
+
+- Testing responsive design
+- Taking device-specific screenshots
+- Testing mobile layouts
+- Verifying breakpoints
+
+<Tip>
+  Use the `responsive` command to automatically test mobile, tablet, and desktop viewports.
+</Tip>
+
+---
+
+## cookie
+
+Set a cookie on the current page domain.
+
+### Syntax
+
+```bash
+$B cookie <name>=<value>
+```
+
+<ParamField path="name=value" type="string" required>
+  Cookie name and value in format "name=value".
+</ParamField>
+
+### Examples
+
+```bash
+# Set auth cookie
+$B cookie "session_token=abc123xyz"
+
+# Set preference
+$B cookie "theme=dark"
+
+# Set and reload to apply
+$B cookie "user_id=12345"
+$B reload
+```
+
+### Return Value
+
+Returns success.
+
+### Common Use Cases
+
+- Setting auth cookies
+- Testing cookie-based features
+- Setting preferences
+- Bypassing login for testing
+
+---
+
+## cookie-import
+
+Import cookies from a JSON file.
+
+### Syntax
+
+```bash
+$B cookie-import <json>
+```
+
+<ParamField path="json" type="string" required>
+  Path to JSON file containing cookies array.
+</ParamField>
+
+### Examples
+
+```bash
+# Import cookies from file
+$B cookie-import /tmp/cookies.json
+
+# Export from one site, import to another
+$B goto https://site1.com
+$B cookies > /tmp/site1-cookies.json
+$B goto https://site2.com
+$B cookie-import /tmp/site1-cookies.json
+```
+
+### Return Value
+
+Returns success or error if file not found or invalid JSON.
+
+### Common Use Cases
+
+- Transferring sessions between environments
+- Batch cookie setup
+- Testing with pre-configured state
+
+---
+
+## cookie-import-browser
+
+Import cookies from a browser (Comet, Chrome, Arc, Brave, Edge).
+
+### Syntax
+
+```bash
+$B cookie-import-browser [browser] [--domain <d>]
+```
+
+<ParamField path="browser" type="string">
+  Browser name: comet, chrome, arc, brave, or edge. Opens picker if omitted.
+</ParamField>
+
+<ParamField path="--domain" type="flag">
+  Import cookies for specific domain only.
+</ParamField>
+
+### Examples
+
+```bash
+# Open browser picker
+$B cookie-import-browser
+
+# Import from specific browser
+$B cookie-import-browser chrome
+
+# Import domain-specific cookies
+$B cookie-import-browser chrome --domain example.com
+```
+
+### Return Value
+
+Returns success and count of imported cookies.
+
+### Common Use Cases
+
+- Importing authenticated sessions
+- Testing with real user data
+- Bypassing login flows
+
+<Note>
+  Requires browser to be installed and accessible. The browser must be closed for cookie import to work.
+</Note>
+
+---
+
+## header
+
+Set a custom HTTP request header.
+
+### Syntax
+
+```bash
+$B header <name>:<value>
+```
+
+<ParamField path="name:value" type="string" required>
+  Header name and value in format "Name:Value".
+</ParamField>
+
+### Examples
+
+```bash
+# Set authorization header
+$B header "Authorization:Bearer abc123"
+
+# Set custom header
+$B header "X-Custom-Id:12345"
+
+# Set and navigate
+$B header "X-API-Key:secret"
+$B goto https://api.example.com
+```
+
+### Return Value
+
+Returns success. Sensitive values (containing "token", "key", "secret") are auto-redacted in logs.
+
+### Common Use Cases
+
+- Setting auth headers
+- Testing API endpoints
+- Sending custom headers
+
+<Warning>
+  Headers are automatically redacted in logs if they contain sensitive keywords like "token", "key", or "secret".
+</Warning>
+
+---
+
+## useragent
+
+Set a custom user agent string.
+
+### Syntax
+
+```bash
+$B useragent <string>
+```
+
+<ParamField path="string" type="string" required>
+  User agent string.
+</ParamField>
+
+### Examples
+
+```bash
+# Set mobile user agent
+$B useragent "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)"
+
+# Set bot user agent
+$B useragent "MyBot/1.0"
+
+# Test user agent detection
+$B useragent "GoogleBot/2.1"
+$B goto https://example.com
+$B text  # See bot-specific content
+```
+
+### Return Value
+
+Returns success.
+
+### Common Use Cases
+
+- Testing mobile detection
+- Testing bot handling
+- Bypassing user agent checks
+
+---
+
+## dialog-accept
+
+Auto-accept the next alert/confirm/prompt dialog.
+
+### Syntax
+
+```bash
+$B dialog-accept [text]
+```
+
+<ParamField path="text" type="string">
+  Optional text to send as prompt response.
+</ParamField>
+
+### Examples
+
+```bash
+# Accept alert
+$B dialog-accept
+$B click "#show-alert"
+
+# Accept confirm
+$B dialog-accept
+$B click "#delete-button"
+
+# Answer prompt
+$B dialog-accept "John Doe"
+$B click "#ask-name"
+
+# Verify dialog appeared
+$B dialog-accept
+$B click @e5
+$B dialog  # See what was shown
+```
+
+### Return Value
+
+Returns success. The handler is one-time use.
+
+### Common Use Cases
+
+- Testing alert dialogs
+- Accepting confirmations
+- Answering prompts
+- Testing dialog flows
+
+<Note>
+  The dialog handler is consumed after one dialog. Set it again for subsequent dialogs.
+</Note>
+
+---
+
+## dialog-dismiss
+
+Auto-dismiss the next dialog.
+
+### Syntax
+
+```bash
+$B dialog-dismiss
+```
+
+### Examples
+
+```bash
+# Dismiss confirm
+$B dialog-dismiss
+$B click "#delete-button"
+$B is visible ".item"  # Verify not deleted
+
+# Dismiss prompt
+$B dialog-dismiss
+$B click "#optional-input"
+```
+
+### Return Value
+
+Returns success. The handler is one-time use.
+
+### Common Use Cases
+
+- Testing dialog cancellation
+- Testing negative paths
+- Dismissing optional dialogs

@@ -1,0 +1,265 @@
+---
+title: 'Feature Development Workflow'
+description: 'Complete workflow from planning to shipping using gstack modes'
+icon: 'workflow'
+---
+
+## Overview
+
+The gstack workflow shifts you through five distinct cognitive modes as you move from idea to production. Each mode uses a different "brain" — founder taste, engineering rigor, paranoid review, fast execution, or systematic testing.
+
+<Note>
+This is not a prompt pack for beginners. It's an operating system for people who ship. You already use Claude Code heavily and want consistent, high-rigor workflows instead of one mushy generic mode.
+</Note>
+
+## The Five-Mode Workflow
+
+Here's how a feature flows through gstack, from first idea to shipped code:
+
+<Steps>
+  <Step title="CEO Review: Find the 10-star product">
+    Use `/plan-ceo-review` to pressure-test whether you're building the right thing. This is **founder mode** — think with taste, ambition, user empathy, and a long time horizon.
+
+    **What it does:**
+    - Rethinks the problem from the user's point of view
+    - Finds the 10-star product hiding inside your request
+    - Asks "what is this product actually for?" before implementing the obvious ticket
+
+    **When to use:** Start almost every feature here. Only after the product direction is locked do you shift into engineering mode.
+  </Step>
+
+  <Step title="Engineering Review: Lock in architecture">
+    Use `/plan-eng-review` to build the technical spine. This is **eng manager mode** — lock in architecture, data flow, diagrams, edge cases, and tests.
+
+    **What it does:**
+    - Designs system boundaries and data flow
+    - Creates architecture diagrams, state machines, test matrices
+    - Maps failure modes and edge cases
+    - Identifies trust boundaries and async job boundaries
+
+    **Key insight:** LLMs get way more complete when you force them to draw the system. Diagrams force hidden assumptions into the open.
+  </Step>
+
+  <Step title="Implementation: Build the feature">
+    Exit plan mode and implement the plan. Claude Code writes the code following the architecture locked in during engineering review.
+
+    This is standard coding mode — no special skill needed.
+  </Step>
+
+  <Step title="Review: Find production bugs">
+    Use `/review` to catch bugs that pass CI but blow up in production. This is **paranoid staff engineer mode**.
+
+    **What it looks for:**
+    - N+1 queries, race conditions, stale reads
+    - Bad trust boundaries, missing indexes
+    - Broken invariants, bad retry logic
+    - Tests that pass while missing the real failure mode
+
+    **Greptile integration:** If you have Greptile installed, `/review` fetches and triages bot comments, classifying them as valid issues, already-fixed items, or false positives.
+  </Step>
+
+  <Step title="Ship: Execute the release">
+    Use `/ship` to land the branch. This is **release machine mode** — fully automated, no questions asked.
+
+    **What it does:**
+    - Syncs with `origin/main`
+    - Runs all test suites in parallel
+    - Performs pre-landing review (critical issues block shipping)
+    - Triages Greptile review comments
+    - Auto-bumps version (MICRO/PATCH auto-decided, MINOR/MAJOR asks)
+    - Auto-generates CHANGELOG from diff
+    - Commits in bisectable chunks
+    - Pushes and creates PR
+
+    **Output:** PR URL — that's the final thing you see.
+  </Step>
+
+  <Step title="QA: Verify it works">
+    Use `/qa` to systematically test your changes. This is **QA lead mode**.
+
+    **On a feature branch (no URL given):**
+    - Auto-analyzes your `git diff` against main
+    - Identifies affected pages and routes
+    - Detects the running app on localhost
+    - Tests only what changed — no manual test plan needed
+
+    **Result:** QA report with health score, screenshots, and evidence.
+  </Step>
+</Steps>
+
+## Real Example: Photo Upload Feature
+
+This example from the README shows all five modes in action:
+
+### 1. CEO Review
+
+```bash
+You:   [enter plan mode, describe the feature]
+       I want to add seller photo upload to the listing app. Sellers
+       should be able to upload a photo of their item and we create
+       the listing from it.
+
+You:   /plan-ceo-review
+
+Claude: "Photo upload" is not the feature. The real job is helping sellers
+        create listings that actually sell. Here's what the 10-star version
+        looks like: auto-identify the product from the photo, pull specs and
+        pricing comps from the web, draft the title and description, suggest
+        the best hero image...
+```
+
+<Note>
+A weak assistant would add a file picker and save an image. CEO review asks whether "photo upload" is even the feature — maybe the real feature is helping someone create a listing that actually sells.
+</Note>
+
+### 2. Engineering Review
+
+```bash
+You:   /plan-eng-review
+
+Claude: [Architecture diagram, state machine for upload → classify → enrich
+        → draft pipeline, async job boundaries, failure modes, test matrix]
+```
+
+**What it produces:**
+- Architecture for upload, classification, enrichment, and draft generation
+- Boundaries: app server, object storage, vision model, search APIs, listing DB
+- State machine: which steps run synchronously vs background jobs
+- Failure modes: what happens if enrichment fails but upload succeeded?
+- Retry logic, duplicate job prevention, persistence strategy
+
+### 3. Implementation
+
+```bash
+You:   [exit plan mode, implement the plan]
+```
+
+Standard coding work — follow the architecture locked in during eng review.
+
+### 4. Review
+
+```bash
+You:   /review
+
+Claude: Race condition: two tabs can overwrite cover-photo selection.
+        Trust boundary: pulling web data into draft generation creates
+        a prompt injection vector. Missing: orphan cleanup for failed uploads.
+
+You:   (fix the issues)
+```
+
+<Warning>
+Passing tests don't mean the branch is safe. Review catches bugs that can survive CI and still punch you in production.
+</Warning>
+
+### 5. Ship
+
+```bash
+You:   /ship
+
+Claude: [Syncs main, runs tests, pushes branch, opens PR — 6 tool calls, done]
+```
+
+**What happened under the hood:**
+- Merged `origin/main` into branch
+- Ran Rails tests and Vitest in parallel
+- Pre-landing review found no issues
+- Auto-decided PATCH version bump (50+ lines changed)
+- Generated CHANGELOG entry from all commits on branch
+- Split changes into 3 bisectable commits
+- Pushed with `-u origin <branch>`
+- Created PR with summary, test results, and review findings
+
+### 6. QA
+
+```bash
+You:   /qa
+
+Claude: Analyzing branch diff... 8 files changed, 3 routes affected.
+        [Tests /listings/new, /listings/:id, /api/listings against localhost:3000]
+        All 3 routes working. Upload + enrichment flow passes end to end.
+```
+
+**Diff-aware QA in action:**
+- Read `git diff main...HEAD` to see what changed
+- Identified affected routes from controller/view files
+- Detected app running on `localhost:3000`
+- Tested each affected route with browser automation
+- Verified the upload → enrichment → draft flow end-to-end
+
+## Testing Authenticated Pages
+
+If your feature requires login, import cookies first:
+
+```bash
+You:   /setup-browser-cookies staging.myapp.com
+
+Claude: Imported 8 cookies for staging.myapp.com from Chrome.
+
+You:   /qa https://staging.myapp.com --quick
+
+Claude: [Smoke test: homepage + 5 pages, 30 seconds]
+        Health Score: 91/100. No critical issues. 1 medium: mobile nav overlap.
+```
+
+<CodeGroup>
+```bash Interactive Cookie Picker
+/setup-browser-cookies
+
+# Opens browser UI to select domains
+# Returns after user picks and clicks done
+```
+
+```bash Direct Domain Import
+/setup-browser-cookies github.com myapp.com
+
+# Imports specific domains without UI
+```
+</CodeGroup>
+
+## Command Reference
+
+| Skill | Mode | Command | When |
+|-------|------|---------|------|
+| `/plan-ceo-review` | Founder / CEO | Plan mode | Start of every feature |
+| `/plan-eng-review` | Eng manager | Plan mode | After product direction is locked |
+| Standard coding | — | Exit plan mode | After architecture is locked |
+| `/review` | Paranoid staff engineer | Any time | Before shipping, after implementation |
+| `/ship` | Release engineer | Feature branch | When ready to land |
+| `/qa` | QA lead | Feature branch or URL | After shipping, on staging, or during dev |
+| `/setup-browser-cookies` | Session manager | Before `/qa` or `/browse` | When testing auth pages |
+
+## Key Principles
+
+<Warning>
+**Planning is not review. Review is not shipping.**
+
+If you blur all of that together, you usually get a mediocre blend of all four. gstack gives you explicit gears.
+</Warning>
+
+1. **CEO review challenges assumptions** — Don't take the request literally. Find the real product.
+
+2. **Engineering review forces completeness** — Diagrams make hand-wavy planning much harder.
+
+3. **Review imagines the production incident before it happens** — N+1 queries, race conditions, trust boundaries.
+
+4. **Ship is fully automated** — The user says `/ship`, next thing they see is the PR URL. No back-and-forth.
+
+5. **QA is diff-aware by default** — Test what changed, not the entire app.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="QA Testing" icon="vial" href="/patterns/qa-testing">
+    Learn the four QA modes and diff-aware testing
+  </Card>
+  <Card title="Greptile Integration" icon="robot" href="/patterns/greptile-integration">
+    Auto-triage PR review comments from Greptile
+  </Card>
+  <Card title="Multi-Session" icon="grid-2" href="/patterns/multi-session">
+    Run 10 parallel Claude sessions with Conductor
+  </Card>
+  <Card title="Browse Skill" icon="browser" href="/skills/browse">
+    Give Claude eyes with headless browser automation
+  </Card>
+</CardGroup>

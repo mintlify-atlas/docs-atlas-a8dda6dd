@@ -1,0 +1,195 @@
+---
+title: "Introduction"
+description: "gstack turns Claude Code into a team of specialists with 8 opinionated workflow skills"
+---
+
+## What is gstack?
+
+gstack is a collection of workflow skills and browser automation tools for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). It transforms one generic AI assistant into a team of specialists — each with a distinct cognitive mode optimized for specific tasks.
+
+Instead of having Claude act as a generalist for everything from product planning to code review to shipping, gstack gives you explicit gears you can shift between:
+
+- **Founder mode** (`/plan-ceo-review`) — Questions whether you're building the right thing
+- **Eng manager mode** (`/plan-eng-review`) — Locks in architecture and technical details  
+- **Paranoid reviewer** (`/review`) — Finds bugs that survive CI
+- **Release engineer** (`/ship`) — Executes the boring shipping checklist
+- **QA engineer** (`/browse`) — Gives Claude eyes to see your running app
+- **QA lead** (`/qa`) — Runs systematic testing workflows
+- **Session manager** (`/setup-browser-cookies`) — Manages authentication state
+- **Team lead** (`/retro`) — Analyzes team velocity and individual contributions
+
+## The Problem
+
+Without gstack, Claude Code operates in one mushy mode:
+
+- Takes your request literally — never asks if you're building the right thing
+- Implements exactly what you say, even when the real product is something bigger
+- "Review my PR" gives inconsistent depth every time
+- "Ship this" turns into a long back-and-forth about what to do next
+- Can write code but can't see your app — it's half blind
+- You still do QA by hand: open browser, click around, check pages
+
+## The Solution
+
+gstack provides:
+
+1. **Cognitive modes** — Tell Claude what kind of thinking you need right now
+2. **Browser automation** — 40+ commands with sub-second latency via persistent Chromium
+3. **Systematic workflows** — Opinionated processes for review, shipping, and testing
+4. **Team awareness** — Understands git history and multi-contributor dynamics
+
+## Architecture Overview
+
+gstack consists of two main components:
+
+### 1. Workflow Skills (Markdown Prompts)
+
+Eight skills that live in `~/.claude/skills/gstack/`:
+
+- `plan-ceo-review/` — Product direction thinking
+- `plan-eng-review/` — Technical architecture planning
+- `review/` — Code review with Greptile integration
+- `ship/` — Release engineering automation
+- `browse/` — Browser command skill
+- `qa/` — QA testing methodologies
+- `setup-browser-cookies/` — Cookie import workflows
+- `retro/` — Team retrospective analysis
+
+These are Markdown files that Claude reads when you invoke the slash command. They contain detailed instructions, examples, and decision frameworks.
+
+### 2. Browser Binary (Compiled Bun + Playwright)
+
+A headless Chromium automation tool at `browse/dist/browse`:
+
+- Compiled binary (~58MB) built with Bun
+- Persistent daemon model (first call ~3s, subsequent calls ~100-200ms)
+- 40+ commands: navigation, reading, inspection, interaction, visual, tabs
+- Ref-based element selection using ARIA tree (`@e1`, `@e2`, `@e3`)
+- Cookie import from real browsers via macOS Keychain
+- Project-local state (`.gstack/` directory per repo)
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="8 Workflow Modes" icon="brain">
+    Switch between founder, eng manager, reviewer, and release engineer thinking
+  </Card>
+  <Card title="Sub-Second Browser" icon="bolt">
+    Persistent Chromium daemon with 100-200ms command latency
+  </Card>
+  <Card title="Ref-Based Interaction" icon="pointer">
+    Select elements via `@e1`, `@e2` refs from ARIA tree — no CSS selectors
+  </Card>
+  <Card title="Diff-Aware QA" icon="code-compare">
+    Auto-detects affected pages from `git diff` and tests only what changed
+  </Card>
+  <Card title="Cookie Import" icon="cookie">
+    Import sessions from Chrome, Arc, Brave, Edge, Comet via Keychain
+  </Card>
+  <Card title="Greptile Integration" icon="robot">
+    Auto-triage Greptile PR comments with false positive detection
+  </Card>
+  <Card title="Multi-Workspace Ready" icon="layer-group">
+    Isolated browser per workspace — run 10 parallel sessions with Conductor
+  </Card>
+  <Card title="Team Retrospectives" icon="chart-line">
+    Per-contributor analysis with specific praise and growth opportunities
+  </Card>
+</CardGroup>
+
+## How It Works
+
+gstack uses Claude Code's skill system. Skills are discovered via symlinks in `~/.claude/skills/`:
+
+```bash
+~/.claude/skills/
+├── browse -> gstack/browse/SKILL.md
+├── qa -> gstack/qa/SKILL.md
+├── review -> gstack/review/SKILL.md
+├── ship -> gstack/ship/SKILL.md
+├── plan-ceo-review -> gstack/plan-ceo-review/SKILL.md
+├── plan-eng-review -> gstack/plan-eng-review/SKILL.md
+├── retro -> gstack/retro/SKILL.md
+├── setup-browser-cookies -> gstack/setup-browser-cookies/SKILL.md
+└── gstack/
+    ├── browse/
+    │   ├── dist/browse (compiled binary)
+    │   └── SKILL.md
+    └── ... (other skills)
+```
+
+When you type `/browse`, Claude reads `browse/SKILL.md` and follows its instructions. The skill tells Claude how to invoke the browser binary and interpret results.
+
+## Requirements
+
+- **Claude Code** — The AI-native IDE from Anthropic
+- **Git** — For installation and version management
+- **Bun** v1.0+ — Runtime for building the browser binary
+- **macOS or Linux** — x64 or arm64 architecture
+
+The browser binary compiles for macOS and Linux. Cookie import currently requires macOS Keychain.
+
+## Installation Methods
+
+<CardGroup cols={2}>
+  <Card title="Global Install" icon="globe" href="/installation#global-install">
+    Install once at `~/.claude/skills/gstack/` for all projects
+  </Card>
+  <Card title="Project Install" icon="folder" href="/installation#project-install">
+    Copy to `.claude/skills/gstack/` so teammates get it automatically
+  </Card>
+</CardGroup>
+
+Both methods use the same `./setup` script to compile the binary and create skill symlinks.
+
+## Who Should Use This?
+
+**You should use gstack if:**
+
+- You already use Claude Code heavily for development
+- You want consistent, high-rigor workflows instead of generic mode
+- You ship frequently and want to reduce manual QA overhead
+- You want to tell the model what kind of thinking you need right now
+- You value explicit cognitive modes over one-size-fits-all prompting
+
+**This is NOT for you if:**
+
+- You're new to AI coding tools (start with vanilla Claude Code first)
+- You prefer flexible, unstructured interactions
+- You don't ship code frequently enough to justify workflow automation
+- You're on Windows (browser binary doesn't compile for Windows yet)
+
+## Philosophy
+
+gstack embodies several core beliefs:
+
+1. **Cognitive modes matter** — Planning ≠ review ≠ shipping. Blurring these together produces mediocre results. Explicit gears are better than one mushy mode.
+
+2. **Speed enables new workflows** — Sub-second browser commands make QA automation practical. Waiting 3 seconds per tool call makes it painful.
+
+3. **Persistence unlocks state** — A daemon that stays running between commands preserves cookies, tabs, localStorage. This enables realistic testing flows.
+
+4. **Opinionated is good** — These skills have strong opinions about how to plan, review, ship, and test. If you want different opinions, fork them.
+
+5. **Real tools for real work** — This is not a demo. It's the actual setup used to ship production code at scale.
+
+## What's Next?
+
+<Steps>
+  <Step title="Install gstack">
+    Follow the [installation guide](/installation) to set up gstack globally or per-project
+  </Step>
+  <Step title="Try the quickstart">
+    Work through the [quickstart guide](/quickstart) to test each skill
+  </Step>
+  <Step title="Learn the concepts">
+    Read about [workflow modes](/concepts/workflow-modes) and [browser automation](/concepts/browser-automation)
+  </Step>
+  <Step title="Explore skills">
+    Dive into individual skill documentation in the [Skills Guide](/skills/plan-ceo-review)
+  </Step>
+</Steps>
+
+<Card title="View on GitHub" icon="github" href="https://github.com/garrytan/gstack" horizontal>
+  Star the repo and browse the source code
+</Card>

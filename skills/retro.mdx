@@ -1,0 +1,378 @@
+---
+title: "retro"
+description: "Weekly engineering retrospective with team-aware per-person breakdowns"
+---
+
+# retro
+
+**Weekly engineering retrospective.** Analyzes commit history, work patterns, and code quality metrics with persistent history and trend tracking. Team-aware: breaks down per-person contributions with praise and growth areas.
+
+## When to Use
+
+Use `/retro` when you:
+
+- **Want to know what actually happened** this week — not vibes, data
+- **Need per-person breakdowns** with specific praise and growth opportunities
+- **Want to track trends** over time (test ratio, session count, LOC/hour, fix ratio)
+- **Are shipping heavily** and need weekly check-ins on velocity and quality
+- **Want to see shipping streaks** (team + personal)
+
+<Note>
+**This is engineering manager mode.** At the end of the week, you want to know what actually happened. `/retro` analyzes commit history and gives you the deepest treatment on your own work, then breaks down every contributor.
+</Note>
+
+## Philosophy
+
+From the README:
+
+> At the end of the week I want to know what actually happened. Not vibes — data. `/retro` analyzes commit history, work patterns, and shipping velocity and writes a candid retrospective.
+
+It's team-aware. It identifies who is running the command, gives you the deepest treatment on your own work, then breaks down every contributor with specific praise and growth opportunities — the kind of feedback you would actually give in a 1:1.
+
+## Key Features
+
+### Team-Aware Analysis
+
+The skill identifies the current user from `git config user.name` and labels them **"You"** in the output. All other authors are teammates.
+
+This lets it orient the narrative:
+- **"Your Week"** section: deepest treatment, first person ("Your peak hours...", "Your biggest ship...")
+- **Team Breakdown** sections: one per teammate, specific praise + growth opportunity
+
+### Per-Person Metrics
+
+For each contributor (including you):
+
+1. **Commits and LOC** — total commits, insertions, deletions, net LOC
+2. **Areas of focus** — which directories/files they touched most (top 3)
+3. **Commit type mix** — their personal feat/fix/refactor/test breakdown
+4. **Session patterns** — when they code (their peak hours), session count
+5. **Test discipline** — their personal test LOC ratio
+6. **Biggest ship** — their single highest-impact commit or PR in the window
+
+### Praise and Growth
+
+For each teammate, the skill writes:
+
+- **Praise** (1-2 specific things): Anchor in actual commits. Not "great work" — say exactly what was good.
+  - Examples: "Shipped the entire auth middleware rewrite in 3 focused sessions with 45% test coverage", "Every PR under 200 LOC — disciplined decomposition."
+
+- **Opportunity for growth** (1 specific thing): Frame as a leveling-up suggestion, not criticism. Anchor in actual data.
+  - Examples: "Test ratio was 12% this week — adding test coverage to the payment module before it gets more complex would pay off", "5 fix commits on the same file suggest the original PR could have used a review pass."
+
+<Tip>
+**Praise should feel like something you'd actually say in a 1:1** — specific, earned, genuine.
+
+**Growth suggestions should feel like investment advice** — "this is worth your time because..." not "you failed at..."
+</Tip>
+
+### Greptile Signal Tracking
+
+If `~/.gstack/greptile-history.md` exists and has entries within the time window, the skill computes Greptile's signal ratio:
+
+`(fix + already-fixed) / (fix + already-fixed + fp)`
+
+This shows whether Greptile's batting average is improving over time.
+
+### Streak Tracking
+
+Counts consecutive days with at least 1 commit to `origin/main`, going back from today. Tracks both:
+
+- **Team streak**: all unique commit dates (no hard cutoff)
+- **Personal streak**: only the current user's commits
+
+Displays:
+```
+Team shipping streak: 47 consecutive days
+Your shipping streak: 32 consecutive days
+```
+
+### Persistent History
+
+After computing all metrics, the skill saves a JSON snapshot to `.context/retros/{date}-{seq}.json`. The next run loads the most recent snapshot and shows deltas:
+
+```
+                    Last        Now         Delta
+Test ratio:         22%    →    41%         ↑19pp
+Sessions:           10     →    14          ↑4
+LOC/hour:           200    →    350         ↑75%
+Fix ratio:          54%    →    30%         ↓24pp (improving)
+```
+
+## Metrics Computed
+
+| Metric | Description |
+|--------|-------------|
+| Commits to main | N |
+| Contributors | N |
+| PRs merged | N (from #NNN patterns in commit messages) |
+| Total insertions | N |
+| Total deletions | N |
+| Net LOC added | N |
+| Test LOC (insertions) | N |
+| Test LOC ratio | N% |
+| Version range | vX.Y.Z.W → vX.Y.Z.W |
+| Active days | N |
+| Detected sessions | N (45-minute gap threshold) |
+| Avg LOC/session-hour | N |
+| Greptile signal | N% (Y catches, Z FPs) |
+
+**Per-author leaderboard** (sorted by commits descending, current user always first):
+
+```
+Contributor         Commits   +/-          Top area
+You (garry)              32   +2400/-300   browse/
+alice                    12   +800/-150    app/services/
+bob                       3   +120/-40     tests/
+```
+
+## Workflow
+
+<Steps>
+  <Step title="Gather Raw Data">
+    Fetch origin and identify the current user:
+    ```bash
+    git fetch origin main --quiet
+    git config user.name
+    git config user.email
+    ```
+
+    Run ALL git commands in parallel (independent):
+    1. All commits with timestamps, subject, hash, author, files changed
+    2. Per-commit test vs total LOC breakdown
+    3. Commit timestamps for session detection (Pacific time)
+    4. Files most frequently changed (hotspot analysis)
+    5. PR numbers from commit messages
+    6. Per-author file hotspots
+    7. Per-author commit counts
+    8. Greptile triage history (if available)
+  </Step>
+  <Step title="Compute Metrics">
+    Calculate summary table metrics (commits, contributors, PRs, LOC, test ratio, sessions, etc.)
+
+    Show per-author leaderboard immediately below.
+
+    **Greptile signal:** If `~/.gstack/greptile-history.md` exists and has entries in the window, compute signal ratio.
+  </Step>
+  <Step title="Commit Time Distribution">
+    Show hourly histogram in Pacific time:
+    ```
+    Hour  Commits  ████████████████
+     00:    4      ████
+     07:    5      █████
+     ...
+    ```
+
+    Identify:
+    - Peak hours
+    - Dead zones
+    - Bimodal vs continuous pattern
+    - Late-night coding clusters (after 10pm)
+  </Step>
+  <Step title="Work Session Detection">
+    Detect sessions using 45-minute gap threshold. For each session:
+    - Start/end time (Pacific)
+    - Number of commits
+    - Duration in minutes
+
+    Classify:
+    - **Deep sessions** (50+ min)
+    - **Medium sessions** (20-50 min)
+    - **Micro sessions** (&lt;20 min)
+
+    Calculate:
+    - Total active coding time
+    - Average session length
+    - LOC per hour of active time
+  </Step>
+  <Step title="Commit Type Breakdown">
+    Categorize by conventional commit prefix (feat/fix/refactor/test/chore/docs):
+    ```
+    feat:     20  (40%)  ████████████████████
+    fix:      27  (54%)  ███████████████████████████
+    refactor:  2  ( 4%)  ██
+    ```
+
+    Flag if fix ratio exceeds 50% — signals "ship fast, fix fast" pattern.
+  </Step>
+  <Step title="Hotspot Analysis">
+    Show top 10 most-changed files. Flag:
+    - Files changed 5+ times (churn hotspots)
+    - Test files vs production files
+    - VERSION/CHANGELOG frequency (version discipline)
+  </Step>
+  <Step title="PR Size Distribution">
+    Estimate PR sizes and bucket:
+    - **Small** (&lt;100 LOC)
+    - **Medium** (100-500 LOC)
+    - **Large** (500-1500 LOC)
+    - **XL** (1500+ LOC) — flag these with file counts
+  </Step>
+  <Step title="Focus Score + Ship of the Week">
+    **Focus score:** Percentage of commits touching the single most-changed top-level directory.
+
+    Higher score = deeper focused work. Lower score = scattered context-switching.
+
+    Report as: "Focus score: 62% (app/services/)"
+
+    **Ship of the week:** Auto-identify the single highest-LOC PR in the window. Highlight:
+    - PR number and title
+    - LOC changed
+    - Why it matters (infer from commit messages and files touched)
+  </Step>
+  <Step title="Team Member Analysis">
+    **For the current user ("You"):** Deepest treatment. Include all detail from solo retro — session analysis, time patterns, focus score. Frame in first person.
+
+    **For each teammate:** Write 2-3 sentences on what they worked on and their pattern. Then:
+    - **Praise** (1-2 specific things)
+    - **Opportunity for growth** (1 specific thing)
+
+    **If only one contributor:** Skip team breakdown.
+
+    **If there are Co-Authored-By trailers:** Parse them. Credit those authors. Note AI co-authors (e.g., `noreply@anthropic.com`) but don't include them as team members — track "AI-assisted commits" separately.
+  </Step>
+  <Step title="Week-over-Week Trends (if window >= 14d)">
+    If time window is 14 days or more, split into weekly buckets and show trends:
+    - Commits per week
+    - LOC per week
+    - Test ratio per week
+    - Fix ratio per week
+    - Session count per week
+  </Step>
+  <Step title="Streak Tracking">
+    Count consecutive days with at least 1 commit to `origin/main`, going back from today (no hard cutoff).
+
+    ```bash
+    # Team streak: all unique commit dates (Pacific time)
+    TZ=America/Los_Angeles git log origin/main --format="%ad" --date=format:"%Y-%m-%d" | sort -u
+
+    # Personal streak: only current user's commits
+    TZ=America/Los_Angeles git log origin/main --author="<user_name>" --format="%ad" --date=format:"%Y-%m-%d" | sort -u
+    ```
+
+    Display both:
+    - "Team shipping streak: 47 consecutive days"
+    - "Your shipping streak: 32 consecutive days"
+  </Step>
+  <Step title="Load History & Compare">
+    Before saving the new snapshot, check for prior retro history:
+    ```bash
+    ls -t .context/retros/*.json 2>/dev/null
+    ```
+
+    **If prior retros exist:** Load the most recent one. Calculate deltas for key metrics and include a **Trends vs Last Retro** section.
+
+    **If no prior retros exist:** Skip comparison, append "First retro recorded — run again next week to see trends."
+  </Step>
+  <Step title="Save Retro History">
+    Save JSON snapshot to `.context/retros/{date}-{seq}.json`:
+
+    ```json
+    {
+      "date": "2026-03-08",
+      "window": "7d",
+      "metrics": {
+        "commits": 47,
+        "contributors": 3,
+        "prs_merged": 12,
+        "insertions": 3200,
+        "deletions": 800,
+        "net_loc": 2400,
+        "test_loc": 1300,
+        "test_ratio": 0.41,
+        "active_days": 6,
+        "sessions": 14,
+        "deep_sessions": 5,
+        "avg_session_minutes": 42,
+        "loc_per_session_hour": 350,
+        "feat_pct": 0.40,
+        "fix_pct": 0.30,
+        "peak_hour": 22,
+        "ai_assisted_commits": 32
+      },
+      "authors": {
+        "Garry Tan": { "commits": 32, "insertions": 2400, "deletions": 300, "test_ratio": 0.41, "top_area": "browse/" },
+        "Alice": { "commits": 12, "insertions": 800, "deletions": 150, "test_ratio": 0.35, "top_area": "app/services/" }
+      },
+      "version_range": ["1.16.0.0", "1.16.1.0"],
+      "streak_days": 47,
+      "tweetable": "Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm",
+      "greptile": {
+        "fixes": 3,
+        "fps": 1,
+        "already_fixed": 2,
+        "signal_pct": 83
+      }
+    }
+    ```
+
+    **Note:** Only include `greptile` field if history data exists in the window.
+  </Step>
+  <Step title="Write the Narrative">
+    Output directly to the conversation (NOT to filesystem, except the JSON snapshot).
+
+    Structure:
+    1. **Tweetable summary** (first line)
+    2. Summary Table
+    3. Trends vs Last Retro (if prior retros exist)
+    4. Time & Session Patterns
+    5. Shipping Velocity
+    6. Code Quality Signals
+    7. Focus & Highlights
+    8. Your Week (personal deep-dive)
+    9. Team Breakdown (one section per teammate)
+    10. Top 3 Team Wins
+    11. 3 Things to Improve
+    12. 3 Habits for Next Week
+    13. Week-over-Week Trends (if applicable)
+  </Step>
+</Steps>
+
+## Compare Mode
+
+When you run `/retro compare` (or `/retro compare 14d`):
+
+1. Compute metrics for current window (default 7d)
+2. Compute metrics for immediately prior same-length window
+3. Show side-by-side comparison table with deltas and arrows
+4. Write brief narrative highlighting biggest improvements and regressions
+5. Save only current-window snapshot to `.context/retros/`
+
+## Tone
+
+- Encouraging but candid, no coddling
+- Specific and concrete — always anchor in actual commits/code
+- Skip generic praise ("great job!") — say exactly what was good and why
+- Frame improvements as leveling up, not criticism
+- **Praise should feel like something you'd actually say in a 1:1** — specific, earned, genuine
+- **Growth suggestions should feel like investment advice** — "this is worth your time because..." not "you failed at..."
+- Never compare teammates against each other negatively. Each person's section stands on its own.
+- Keep total output around 3000-4500 words
+- Use markdown tables and code blocks for data, prose for narrative
+
+## Usage
+
+```bash
+# Default: last 7 days
+/retro
+
+# Last 24 hours
+/retro 24h
+
+# Last 14 days
+/retro 14d
+
+# Last 30 days
+/retro 30d
+
+# Compare current window vs prior window
+/retro compare
+
+# Compare with explicit window
+/retro compare 14d
+```
+
+## Related Skills
+
+- **[ship](/skills/ship)** — Release engineer mode: `/retro` tracks what you shipped with `/ship`.
+- **[review](/skills/review)** — Paranoid staff engineer mode: `/retro` tracks Greptile's batting average if you use `/review` with Greptile integration.

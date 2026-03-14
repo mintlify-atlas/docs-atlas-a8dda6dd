@@ -1,0 +1,317 @@
+---
+title: Visual Commands
+description: Take screenshots, generate PDFs, test responsive layouts, and compare visual differences
+---
+
+Visual commands allow you to capture page screenshots, generate PDFs, and compare visual output across different states.
+
+## screenshot
+
+Capture a screenshot of the current page.
+
+### Syntax
+
+```bash
+$B screenshot [path]
+```
+
+<ParamField path="path" type="string">
+  Optional output path. Defaults to /tmp/screenshot.png if omitted.
+</ParamField>
+
+### Examples
+
+```bash
+# Take screenshot with default path
+$B goto https://example.com
+$B screenshot
+
+# Save to specific location
+$B screenshot /tmp/homepage.png
+
+# Capture after interaction
+$B click "#menu-toggle"
+$B screenshot /tmp/menu-open.png
+
+# Multiple screenshots for comparison
+$B goto https://example.com
+$B screenshot /tmp/before.png
+$B click @e5
+$B screenshot /tmp/after.png
+
+# Mobile screenshot
+$B viewport 375x812
+$B screenshot /tmp/mobile-view.png
+```
+
+### Return Value
+
+Returns the path where the screenshot was saved.
+
+### Common Use Cases
+
+- Visual regression testing
+- Documenting bugs with screenshots
+- Capturing UI states
+- Creating documentation screenshots
+- Verifying visual changes
+
+<Tip>
+  Use `snapshot -a -o <path>` to create annotated screenshots with element labels for bug reports.
+</Tip>
+
+```bash
+# Example: Bug report with annotated screenshot
+$B goto https://app.com/broken-page
+$B snapshot -i -a -o /tmp/bug-annotated.png
+$B console --errors > /tmp/errors.log
+# Now you have labeled screenshot + error log
+```
+
+---
+
+## pdf
+
+Save the current page as a PDF.
+
+### Syntax
+
+```bash
+$B pdf [path]
+```
+
+<ParamField path="path" type="string">
+  Optional output path. Defaults to /tmp/page.pdf if omitted.
+</ParamField>
+
+### Examples
+
+```bash
+# Generate PDF with default path
+$B goto https://docs.example.com
+$B pdf
+
+# Save to specific location
+$B pdf /tmp/documentation.pdf
+
+# Generate invoice PDF
+$B goto https://app.com/invoice/12345
+$B pdf /tmp/invoice-12345.pdf
+
+# Generate report
+$B goto https://analytics.example.com/report
+$B wait "--networkidle"
+$B pdf /tmp/monthly-report.pdf
+```
+
+### Return Value
+
+Returns the path where the PDF was saved.
+
+### Common Use Cases
+
+- Generating printable documents
+- Archiving web pages
+- Creating reports
+- Saving invoices or receipts
+- Documentation archival
+
+<Note>
+  PDFs are generated with print media styles applied, similar to browser print preview.
+</Note>
+
+```bash
+# Example: Generate monthly report PDFs
+for month in jan feb mar; do
+  $B goto "https://app.com/reports/$month"
+  $B wait "--networkidle"
+  $B pdf "/tmp/report-$month.pdf"
+done
+```
+
+---
+
+## responsive
+
+Generate screenshots at mobile, tablet, and desktop viewports automatically.
+
+### Syntax
+
+```bash
+$B responsive [prefix]
+```
+
+<ParamField path="prefix" type="string">
+  Optional filename prefix. Defaults to "/tmp/responsive" if omitted.
+</ParamField>
+
+### Viewports
+
+The command automatically captures three screenshots:
+- **Mobile**: 375x812 (iPhone X dimensions)
+- **Tablet**: 768x1024 (iPad dimensions)
+- **Desktop**: 1280x720 (standard desktop)
+
+### Examples
+
+```bash
+# Generate responsive screenshots with default names
+$B goto https://example.com
+$B responsive
+# Creates:
+#   /tmp/responsive-mobile.png
+#   /tmp/responsive-tablet.png
+#   /tmp/responsive-desktop.png
+
+# Custom prefix
+$B responsive /tmp/homepage
+# Creates:
+#   /tmp/homepage-mobile.png
+#   /tmp/homepage-tablet.png
+#   /tmp/homepage-desktop.png
+
+# Test responsive layout
+$B goto https://myapp.com
+$B responsive /tmp/layout-test
+# Manually verify layouts across devices
+```
+
+### Return Value
+
+Returns the paths of all three generated screenshots.
+
+### Common Use Cases
+
+- Testing responsive designs
+- Visual regression testing across viewports
+- Documenting responsive behavior
+- QA testing mobile compatibility
+- Client demos of responsive layouts
+
+<Tip>
+  Combine with `snapshot -D` to see structural differences at each breakpoint.
+</Tip>
+
+```bash
+# Example: Compare responsive layouts
+$B goto https://example.com
+$B viewport 375x812
+$B snapshot > /tmp/mobile-structure.txt
+$B viewport 1280x720
+$B snapshot -D  # See what changed from mobile to desktop
+```
+
+---
+
+## diff
+
+Compare the text content of two URLs and show differences.
+
+### Syntax
+
+```bash
+$B diff <url1> <url2>
+```
+
+<ParamField path="url1" type="string" required>
+  First URL to compare.
+</ParamField>
+
+<ParamField path="url2" type="string" required>
+  Second URL to compare.
+</ParamField>
+
+### Examples
+
+```bash
+# Compare staging vs production
+$B diff https://staging.example.com https://example.com
+
+# Compare two versions of documentation
+$B diff https://docs.example.com/v1 https://docs.example.com/v2
+
+# Compare before and after deployment
+$B diff https://old.example.com https://new.example.com
+
+# Compare localized versions
+$B diff https://example.com/en https://example.com/es
+```
+
+### Return Value
+
+Returns a unified diff showing additions (+ lines) and deletions (- lines) between the two pages.
+
+Example output:
+```diff
+- Old content that was removed
++ New content that was added
+  Content that stayed the same
+```
+
+### Common Use Cases
+
+- Comparing environments (staging vs prod)
+- Verifying deployment changes
+- Comparing page versions
+- Detecting content differences
+- Testing localization differences
+- Debugging environment-specific issues
+
+<Note>
+  The diff command compares the cleaned text content (from the `text` command), not raw HTML.
+</Note>
+
+```bash
+# Example: Verify staging matches production
+$B diff https://staging.myapp.com https://myapp.com
+# Should show minimal or no differences
+```
+
+<Warning>
+  The diff compares text content only. For visual differences, use screenshots and manual comparison.
+</Warning>
+
+## Visual Testing Workflow
+
+Here's a complete workflow for visual testing and comparison:
+
+```bash
+# 1. Capture baseline
+$B goto https://example.com
+$B screenshot /tmp/baseline.png
+$B snapshot > /tmp/baseline-structure.txt
+
+# 2. Make changes or navigate
+$B click "#toggle-feature"
+
+# 3. Compare changes
+$B screenshot /tmp/after-change.png
+$B snapshot -D  # Structural diff
+
+# 4. Test responsive
+$B responsive /tmp/feature-test
+
+# 5. Compare environments
+$B diff https://staging.example.com https://example.com
+```
+
+## Annotated Screenshots
+
+For bug reports and documentation, use annotated screenshots:
+
+```bash
+# Create annotated screenshot with interactive elements labeled
+$B goto https://app.com/page
+$B snapshot -i -a -o /tmp/interactive-elements.png
+
+# Show all cursor-interactive elements
+$B snapshot -C -a -o /tmp/cursor-elements.png
+
+# Compact view with annotations
+$B snapshot -i -c -a -o /tmp/compact-labeled.png
+```
+
+The annotated screenshots include:
+- Red overlay boxes around interactive elements
+- @e or @c reference labels
+- Perfect for bug reports and documentation

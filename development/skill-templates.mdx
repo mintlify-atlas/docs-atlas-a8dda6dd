@@ -1,0 +1,562 @@
+---
+title: Skill Templates
+description: Understanding gstack's SKILL.md template and generation system
+---
+
+SKILL.md files in gstack are **generated** from templates. This ensures documentation stays in sync with code and eliminates an entire class of bugs where docs reference commands that don't exist or miss newly added features.
+
+## The Problem
+
+Hand-maintained documentation always drifts from code:
+
+- Developer adds a new command to `commands.ts` → forgets to update SKILL.md
+- Developer removes a flag → SKILL.md still references it → agent gets errors
+- Developer changes a usage pattern → docs show old syntax
+
+Every drift creates a failure mode for the AI agent. The agent trusts the docs, runs invalid commands, and hits errors.
+
+## The Solution
+
+gstack uses a template system that pulls command metadata directly from source code:
+
+```
+SKILL.md.tmpl          (human-written prose + placeholders)
+      ↓
+gen-skill-docs.ts      (reads source code metadata)
+      ↓
+SKILL.md               (committed, auto-generated sections)
+```
+
+<Note>
+Templates contain the workflows, tips, and examples that require human judgment. Placeholders like `{{COMMAND_REFERENCE}}` and `{{SNAPSHOT_FLAGS}}` are filled from source at build time.
+</Note>
+
+## Template Structure
+
+A typical SKILL.md template looks like this:
+
+```markdown
+---
+name: gstack
+version: 1.1.0
+description: |
+  Fast headless browser for QA testing...
+allowed-tools:
+  - Bash
+  - Read
+---
+
+{{UPDATE_CHECK}}
+
+# gstack browse: QA Testing & Dogfooding
+
+Persistent headless Chromium. First call auto-starts (~3s)...
+
+## QA Workflows
+
+### Test a user flow
+
+```bash
+$B goto https://app.example.com/login
+$B snapshot -i
+$B fill @e3 "test@example.com"
+```
+
+## Snapshot System
+
+{{SNAPSHOT_FLAGS}}
+
+## Command Reference
+
+{{COMMAND_REFERENCE}}
+
+## Tips
+
+1. **Navigate once, query many times.**
+2. **Use `snapshot -i` first.**
+```
+
+## Available Placeholders
+
+### {{COMMAND_REFERENCE}}
+
+Generates a complete command reference table organized by category.
+
+**Input:** Command metadata from `browse/src/commands.ts`
+
+**Output:**
+
+```markdown
+### Navigation
+| Command | Description |
+|---------|-------------|
+| `goto <url>` | Navigate to URL. Waits for load event. |
+| `reload` | Reload current page |
+
+### Reading
+| Command | Description |
+|---------|-------------|
+| `text` | Extract visible text content |
+| `html [selector]` | Get HTML of page or specific element |
+```
+
+<CodeGroup>
+```typescript Source (commands.ts)
+export const COMMAND_DESCRIPTIONS: Record<string, CommandMeta> = {
+  goto: {
+    category: 'Navigation',
+    description: 'Navigate to URL. Waits for load event.',
+    usage: 'goto <url>',
+  },
+  text: {
+    category: 'Reading',
+    description: 'Extract visible text content',
+  },
+  // ...
+};
+```
+
+```markdown Generated Output
+### Navigation
+| Command | Description |
+|---------|-------------|
+| `goto <url>` | Navigate to URL. Waits for load event. |
+
+### Reading
+| Command | Description |
+|---------|-------------|
+| `text` | Extract visible text content |
+```
+</CodeGroup>
+
+### {{SNAPSHOT_FLAGS}}
+
+Generates the snapshot flags reference with value hints and usage examples.
+
+**Input:** Flag metadata from `browse/src/snapshot.ts`
+
+**Output:**
+
+```
+The snapshot is your primary tool for understanding and interacting with pages.
+
+-i        --interactive          Include interactive elements with @e refs
+-c        --compact              Compact mode (no descriptions)
+-d <N>    --depth <N>            Limit tree depth (default: unlimited)
+-s <sel>  --selector <sel>       Snapshot subtree only
+-D        --diff                 Show diff since last snapshot
+-a        --annotate             Add visual labels to screenshot
+-o <path> --output <path>        Save annotated screenshot
+-C        --cursor-interactive   Find cursor-interactive elements
+
+All flags can be combined freely. Example:
+$B snapshot -i -a -C -o /tmp/annotated.png
+```
+
+<CodeGroup>
+```typescript Source (snapshot.ts)
+export const SNAPSHOT_FLAGS = [
+  {
+    short: '-i',
+    long: '--interactive',
+    description: 'Include interactive elements with @e refs',
+    optionKey: 'interactive',
+  },
+  {
+    short: '-d',
+    long: '--depth',
+    description: 'Limit tree depth (default: unlimited)',
+    optionKey: 'depth',
+    valueHint: '<N>',
+  },
+  // ...
+];
+```
+
+```markdown Generated Output
+-i        --interactive          Include interactive elements with @e refs
+-d <N>    --depth <N>            Limit tree depth (default: unlimited)
+```
+</CodeGroup>
+
+### {{UPDATE_CHECK}}
+
+Generates the version check bash block that runs before skill execution.
+
+**Output:**
+
+```bash
+_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || ...)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+```
+
+### {{BROWSE_SETUP}}
+
+Generates the binary discovery and setup check block.
+
+**Output:**
+
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+if [ -x "$B" ]; then
+  echo "READY: $B"
+else
+  echo "NEEDS_SETUP"
+fi
+```
+
+## The Generator Workflow
+
+The `scripts/gen-skill-docs.ts` script handles the full generation pipeline:
+
+<Steps>
+  <Step title="Find templates">
+    Scans for `*.tmpl` files:
+    - `SKILL.md.tmpl`
+    - `browse/SKILL.md.tmpl`
+    - `qa/SKILL.md.tmpl`
+    - `setup-browser-cookies/SKILL.md.tmpl`
+  </Step>
+
+  <Step title="Read source metadata">
+    Imports:
+    - `COMMAND_DESCRIPTIONS` from `browse/src/commands.ts`
+    - `SNAPSHOT_FLAGS` from `browse/src/snapshot.ts`
+  </Step>
+
+  <Step title="Resolve placeholders">
+    Replaces each `{{PLACEHOLDER}}` with generated content
+  </Step>
+
+  <Step title="Add generation header">
+    Prepends comment:
+    ```markdown
+    <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+    <!-- Regenerate: bun run gen:skill-docs -->
+    ```
+  </Step>
+
+  <Step title="Write output">
+    Writes to `SKILL.md` (same directory as template)
+  </Step>
+</Steps>
+
+### Running the Generator
+
+<CodeGroup>
+```bash Generate all skills
+bun run gen:skill-docs
+```
+
+```bash Check for staleness (dry-run)
+bun run gen:skill-docs --dry-run
+```
+
+```bash Generate + compile browse binary
+bun run build
+```
+
+```bash Watch mode (auto-regenerate on save)
+bun run dev:skill
+```
+</CodeGroup>
+
+## Why Docs Are Committed
+
+Generated SKILL.md files are committed to git, not generated at runtime. Three reasons:
+
+<AccordionGroup>
+  <Accordion title="1. Claude reads SKILL.md at skill load time">
+    There's no build step when a user invokes `/browse`. The file must already exist and be correct.
+  </Accordion>
+
+  <Accordion title="2. CI can validate freshness">
+    ```yaml
+    - name: Check docs freshness
+      run: bun run gen:skill-docs --dry-run
+    ```
+    
+    This catches stale docs before merge. If generated output differs from committed file, CI fails.
+  </Accordion>
+
+  <Accordion title="3. Git blame works">
+    You can see when a command was added and in which commit. Runtime generation loses this history.
+  </Accordion>
+</AccordionGroup>
+
+## Adding a New Command
+
+When you add a command, the docs auto-update:
+
+<Steps>
+  <Step title="Add to command registry">
+    ```typescript
+    // browse/src/commands.ts
+    export const COMMAND_DESCRIPTIONS: Record<string, CommandMeta> = {
+      // ...
+      'new-cmd': {
+        category: 'Reading',
+        description: 'Does something useful',
+        usage: 'new-cmd <arg>',
+      },
+    };
+    
+    export const READ_COMMANDS = new Set([
+      // ...
+      'new-cmd',
+    ]);
+    ```
+  </Step>
+
+  <Step title="Implement the command">
+    ```typescript
+    // browse/src/read-commands.ts
+    case 'new-cmd': {
+      const arg = args[0];
+      // implementation
+      return result;
+    }
+    ```
+  </Step>
+
+  <Step title="Regenerate docs">
+    ```bash
+    bun run gen:skill-docs
+    ```
+    
+    The command now appears in the generated command reference table.
+  </Step>
+
+  <Step title="Verify">
+    ```bash
+    bun test  # validates command exists in docs
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+The template system is **structurally sound**: if a command exists in code, it appears in docs. If it doesn't exist, it can't appear.
+</Tip>
+
+## Adding a New Snapshot Flag
+
+Same process as commands:
+
+<Steps>
+  <Step title="Add to SNAPSHOT_FLAGS">
+    ```typescript
+    // browse/src/snapshot.ts
+    export const SNAPSHOT_FLAGS = [
+      // ...
+      {
+        short: '-x',
+        long: '--experimental',
+        description: 'Enable experimental feature',
+        optionKey: 'experimental',
+      },
+    ];
+    ```
+  </Step>
+
+  <Step title="Add to SnapshotOptions type">
+    ```typescript
+    interface SnapshotOptions {
+      // ...
+      experimental?: boolean;
+    }
+    ```
+  </Step>
+
+  <Step title="Regenerate docs">
+    ```bash
+    bun run gen:skill-docs
+    ```
+  </Step>
+</Steps>
+
+## Enriched Descriptions
+
+The generator can enrich descriptions with examples and valid values:
+
+### Value Hints
+
+Flags with `valueHint` show parameter types:
+
+```typescript
+{
+  short: '-d',
+  long: '--depth',
+  description: 'Limit tree depth',
+  valueHint: '<N>',  // Shows -d <N> instead of just -d
+}
+```
+
+### Command Usage Patterns
+
+Commands with `usage` field show full syntax:
+
+```typescript
+{
+  command: 'fill',
+  description: 'Fill input field with text',
+  usage: 'fill <ref|selector> <text>',  // Shows fill <ref|selector> <text>
+}
+```
+
+## Template Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Keep prose in templates" icon="file-lines">
+    Workflows, tips, and examples belong in `.tmpl` files. They require human judgment.
+  </Card>
+  
+  <Card title="Keep data in source" icon="code">
+    Commands, flags, and metadata belong in `.ts` files. They're the source of truth.
+  </Card>
+  
+  <Card title="Use placeholders for lists" icon="list">
+    Command tables, flag references → use `{{PLACEHOLDERS}}`. Ensures completeness.
+  </Card>
+  
+  <Card title="Commit both .tmpl and .md" icon="code-commit">
+    Always commit template and generated output together. CI validates they match.
+  </Card>
+</CardGroup>
+
+## Dry-Run Mode
+
+The `--dry-run` flag generates to memory and compares with committed files:
+
+```bash
+$ bun run gen:skill-docs --dry-run
+FRESH: SKILL.md
+FRESH: browse/SKILL.md
+STALE: qa/SKILL.md
+
+Generated SKILL.md files are stale. Run: bun run gen:skill-docs
+```
+
+<Note>
+CI uses `--dry-run` to ensure docs are fresh before merge. If output differs, CI fails with exit code 1.
+</Note>
+
+## Generator Implementation
+
+Key parts of `scripts/gen-skill-docs.ts`:
+
+<CodeGroup>
+```typescript Placeholder Resolvers
+const RESOLVERS: Record<string, () => string> = {
+  COMMAND_REFERENCE: generateCommandReference,
+  SNAPSHOT_FLAGS: generateSnapshotFlags,
+  UPDATE_CHECK: generateUpdateCheck,
+  BROWSE_SETUP: generateBrowseSetup,
+};
+```
+
+```typescript Template Processing
+function processTemplate(tmplPath: string) {
+  const tmplContent = fs.readFileSync(tmplPath, 'utf-8');
+  
+  // Replace placeholders
+  let content = tmplContent.replace(/\{\{(\w+)\}\}/g, (match, name) => {
+    const resolver = RESOLVERS[name];
+    if (!resolver) throw new Error(`Unknown placeholder {{${name}}}`);
+    return resolver();
+  });
+  
+  // Add generated header
+  const header = `<!-- AUTO-GENERATED from ${basename(tmplPath)} -->`;
+  content = header + content;
+  
+  return { outputPath: tmplPath.replace(/\.tmpl$/, ''), content };
+}
+```
+
+```typescript Command Reference Generator
+function generateCommandReference(): string {
+  const groups = new Map<string, Array<CommandMeta>>();
+  
+  // Group by category
+  for (const [cmd, meta] of Object.entries(COMMAND_DESCRIPTIONS)) {
+    const list = groups.get(meta.category) || [];
+    list.push({ command: cmd, ...meta });
+    groups.set(meta.category, list);
+  }
+  
+  // Sort and format
+  const sections = [];
+  for (const [category, commands] of groups) {
+    sections.push(`### ${category}`);
+    sections.push('| Command | Description |');
+    sections.push('|---------|-------------|');
+    for (const cmd of commands.sort()) {
+      const display = cmd.usage || cmd.command;
+      sections.push(`| \`${display}\` | ${cmd.description} |`);
+    }
+  }
+  
+  return sections.join('\n');
+}
+```
+</CodeGroup>
+
+## Watch Mode
+
+During active development, use watch mode for instant feedback:
+
+```bash
+$ bun run dev:skill
+
+[watch] Watching for changes...
+[gen] SKILL.md.tmpl → SKILL.md
+[test] ✓ All commands valid
+[test] ✓ All flags valid
+```
+
+On every save:
+1. Regenerates SKILL.md from templates
+2. Runs static validation tests
+3. Shows health dashboard
+
+## Health Dashboard
+
+The `bun run skill:check` command shows complete skill health:
+
+```bash
+$ bun run skill:check
+
+=== Skill Health Dashboard ===
+
+SKILL.md
+  ✓ 47 valid commands
+  ✓ 8 snapshot flags
+  ✓ Generated from template
+  ✓ Fresh (matches source)
+
+browse/SKILL.md
+  ✓ 47 valid commands
+  ✓ 8 snapshot flags
+  ✓ Generated from template
+  ✓ Fresh (matches source)
+
+qa/SKILL.md
+  ⚠ STALE - run gen:skill-docs
+
+All skills: 2/3 healthy
+```
+
+## Summary
+
+The template system ensures:
+
+- **Docs never drift from code** — command reference is always accurate
+- **New commands auto-appear** — add to `commands.ts`, docs update automatically
+- **CI catches staleness** — `--dry-run` validates freshness before merge
+- **Human prose stays hand-crafted** — workflows and tips remain in templates
+- **Structural soundness** — if it's in code, it's in docs; if it's not in code, it can't be in docs
+
+Edit templates, not generated files. Run `bun run gen:skill-docs` after every change. Commit both.

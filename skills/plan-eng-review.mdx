@@ -1,0 +1,308 @@
+---
+title: "plan-eng-review"
+description: "Engineering manager mode plan review for architecture, data flow, and test coverage"
+---
+
+# plan-eng-review
+
+**Eng manager-mode plan review.** Lock in the execution plan — architecture, data flow, diagrams, edge cases, test coverage, performance. Walks through issues interactively with opinionated recommendations.
+
+## When to Use
+
+Use `/plan-eng-review` when you:
+
+- **Have product direction locked** and need to nail the technical plan
+- **Want architectural rigor** — diagrams, data flow, dependency graphs, failure modes
+- **Need a test strategy** before writing code
+- **Want opinionated recommendations** with tradeoffs, not just a menu of options
+- **Are planning a big change** (8+ files, 2+ new classes/services)
+
+<Note>
+**This is your best technical lead.** Once product direction is right (use [plan-ceo-review](/skills/plan-ceo-review) for that), this skill becomes your eng manager — it makes the plan bulletproof.
+</Note>
+
+## Philosophy
+
+From the README:
+
+> Once the product direction is right, I want a different kind of intelligence entirely. I do not want more sprawling ideation. I want the model to become my best technical lead.
+
+This mode should nail:
+- Architecture
+- System boundaries
+- Data flow
+- State transitions
+- Failure modes
+- Edge cases
+- Trust boundaries
+- Test coverage
+
+**And diagrams.** LLMs get way more complete when you force them to draw the system. Diagrams force hidden assumptions into the open.
+
+## Step 0: Scope Challenge
+
+Before reviewing anything, the skill answers:
+
+1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?
+2. **What is the minimum set of changes that achieves the stated goal?** Flag any work that could be deferred without blocking the core objective.
+3. **Complexity check:** If the plan touches more than 8 files or introduces more than 2 new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
+
+Then asks if you want one of three options:
+
+### SCOPE REDUCTION
+The plan is overbuilt. Propose a minimal version that achieves the core goal, then review that.
+
+### BIG CHANGE
+Work through interactively, one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
+
+### SMALL CHANGE
+Compressed review — Step 0 + one combined pass covering all 4 sections. For each section, pick the single most important issue. Present as a single numbered list + mandatory test diagram + completion summary. One AskUserQuestion round at the end.
+
+<Warning>
+**If you do not select SCOPE REDUCTION, the skill commits to your chosen scope.** It won't silently lobby for a smaller plan during later sections. Raise scope concerns once in Step 0 — after that, optimize within the chosen scope.
+</Warning>
+
+## Review Sections
+
+After scope is agreed, the skill runs 4 sections:
+
+### 1. Architecture Review
+
+Evaluates:
+- Overall system design and component boundaries
+- Dependency graph and coupling concerns
+- Data flow patterns and potential bottlenecks
+- Scaling characteristics and single points of failure
+- Security architecture (auth, data access, API boundaries)
+- Whether key flows deserve ASCII diagrams in the plan or in code comments
+- For each new codepath or integration point, describe one realistic production failure scenario and whether the plan accounts for it
+
+**One AskUserQuestion per issue found.** Do NOT batch.
+
+### 2. Code Quality Review
+
+Evaluates:
+- Code organization and module structure
+- DRY violations — be aggressive here
+- Error handling patterns and missing edge cases (call these out explicitly)
+- Technical debt hotspots
+- Areas that are over-engineered or under-engineered
+- Existing ASCII diagrams in touched files — are they still accurate after this change?
+
+**One AskUserQuestion per issue found.** Do NOT batch.
+
+### 3. Test Review
+
+**Makes a diagram of all new:**
+- UX flows
+- Data flows
+- Codepaths
+- Branching if statements or outcomes
+
+For each new item in the diagram:
+- What type of test covers it? (Unit / Integration / System / E2E)
+- Does a test for it exist in the plan?
+- What is the happy path test?
+- What is the failure path test?
+- What is the edge case test?
+
+<Tip>
+**For LLM/prompt changes:** The skill checks `CLAUDE.md` for "Prompt/LLM changes" file patterns. If the plan touches ANY of those patterns, it states which eval suites must be run, which cases should be added, and what baselines to compare against.
+</Tip>
+
+**One AskUserQuestion per issue found.** Do NOT batch.
+
+### 4. Performance Review
+
+Evaluates:
+- N+1 queries and database access patterns
+- Memory-usage concerns
+- Caching opportunities
+- Slow or high-complexity code paths
+
+**One AskUserQuestion per issue found.** Do NOT batch.
+
+## Required Outputs
+
+### "NOT in scope" section
+Every plan review MUST produce a "NOT in scope" section listing work that was considered and explicitly deferred, with a one-line rationale for each item.
+
+### "What already exists" section
+List existing code/flows that already partially solve sub-problems in this plan, and whether the plan reuses them or unnecessarily rebuilds them.
+
+### TODOS.md updates
+After all review sections are complete, present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question.
+
+For each TODO, describe:
+- **What:** One-line description of the work
+- **Why:** The concrete problem it solves or value it unlocks
+- **Pros:** What you gain by doing this work
+- **Cons:** Cost, complexity, or risks of doing it
+- **Context:** Enough detail that someone picking this up in 3 months understands the motivation, current state, and where to start
+- **Depends on / blocked by:** Any prerequisites or ordering constraints
+
+Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
+
+<Warning>
+Do NOT just append vague bullet points. A TODO without context is worse than no TODO — it creates false confidence that the idea was captured while actually losing the reasoning.
+</Warning>
+
+### Diagrams
+The plan itself should use ASCII diagrams for any non-trivial data flow, state machine, or processing pipeline.
+
+Additionally, identify which files in the implementation should get inline ASCII diagram comments — particularly:
+- Models with complex state transitions
+- Services with multi-step pipelines
+- Concerns with non-obvious mixin behavior
+
+### Failure Modes
+For each new codepath identified in the test review diagram, list one realistic way it could fail in production (timeout, nil reference, race condition, stale data, etc.) and whether:
+
+1. A test covers that failure
+2. Error handling exists for it
+3. The user would see a clear error or a silent failure
+
+If any failure mode has **no test AND no error handling AND would be silent**, flag it as a **critical gap**.
+
+### Completion Summary
+At the end of the review, the skill displays:
+
+```
+- Step 0: Scope Challenge (user chose: ___)
+- Architecture Review: ___ issues found
+- Code Quality Review: ___ issues found
+- Test Review: diagram produced, ___ gaps identified
+- Performance Review: ___ issues found
+- NOT in scope: written
+- What already exists: written
+- TODOS.md updates: ___ items proposed to user
+- Failure modes: ___ critical gaps flagged
+```
+
+## How It Asks Questions
+
+**CRITICAL RULE:** Every AskUserQuestion MUST:
+
+1. Present 2-3 concrete lettered options
+2. State which option you recommend FIRST
+3. Explain in 1-2 sentences WHY that option over the others, mapping to engineering preferences
+
+No batching multiple issues into one question. No yes/no questions.
+
+**Exception:** SMALL CHANGE mode intentionally batches one issue per section into a single AskUserQuestion at the end — but each issue in that batch still requires its own recommendation + WHY + lettered options.
+
+### For Each Issue
+
+- **One issue = one AskUserQuestion call.** Never combine multiple issues.
+- Describe the problem concretely, with file and line references.
+- Present 2–3 options, including "do nothing" where reasonable.
+- For each option, specify in one line: effort, risk, and maintenance burden.
+- **Lead with your recommendation.** State it as a directive: "Do B. Here's why:" — not "Option B might be worth considering."
+- **Map the reasoning to engineering preferences.** One sentence connecting your recommendation to a specific preference (DRY, explicit > clever, minimal diff, etc.).
+- **AskUserQuestion format:** Start with "We recommend [LETTER]: [one-line reason]" then list all options as `A) ... B) ... C) ...`. Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
+
+**Escape hatch:** If a section has no issues, say so and move on. If an issue has an obvious fix with no real alternatives, state what you'll do and move on — don't waste a question on it.
+
+## Engineering Preferences
+
+The skill uses these preferences to guide every recommendation:
+
+- **DRY is important** — flag repetition aggressively
+- **Well-tested code is non-negotiable** — I'd rather have too many tests than too few
+- **"Engineered enough"** — not under-engineered (fragile, hacky) and not over-engineered (premature abstraction, unnecessary complexity)
+- **Err on the side of handling more edge cases, not fewer** — thoughtfulness > speed
+- **Bias toward explicit over clever**
+- **Minimal diff** — achieve the goal with the fewest new abstractions and files touched
+
+## Documentation and Diagrams
+
+From the skill file:
+
+> I value ASCII art diagrams highly — for data flow, state machines, dependency graphs, processing pipelines, and decision trees. Use them liberally in plans and design docs.
+
+**Diagram maintenance is part of the change.** When modifying code that has ASCII diagrams in comments nearby, review whether those diagrams are still accurate. Update them as part of the same commit. Stale diagrams are worse than no diagrams — they actively mislead.
+
+Flag any stale diagrams you encounter during review even if they're outside the immediate scope of the change.
+
+## Retrospective Learning
+
+The skill checks the git log for this branch. If there are prior commits suggesting a previous review cycle (e.g., review-driven refactors, reverted changes), it notes what was changed and whether the current plan touches the same areas.
+
+**Be more aggressive reviewing areas that were previously problematic.**
+
+## Example Workflow
+
+```
+You:   /plan-eng-review
+
+Claude: [Runs git commands to understand current state]
+        [Reads CLAUDE.md, TODOS.md, architecture docs]
+
+        ## Step 0: Scope Challenge
+
+        1. What already exists: The upload flow in `app/services/
+           upload_service.rb` already handles S3 uploads and generates
+           signed URLs. We can reuse that instead of rebuilding.
+
+        2. Minimum changes: The core goal (photo → listing) can be
+           achieved in 3 files: `ListingFromPhotoService`, a controller
+           action, and a route. Everything else is nice-to-have.
+
+        3. Complexity check: The plan touches 12 files and introduces
+           4 new services. That's a smell. Can we achieve the same goal
+           with fewer moving parts?
+
+        Options:
+        1. SCOPE REDUCTION: Propose minimal version (3 files, reuse
+           existing upload service)
+        2. BIG CHANGE: Review the 12-file plan interactively
+        3. SMALL CHANGE: Compressed review, single round
+
+You:   2
+
+Claude: ## Architecture Review
+
+        Issue 1: The plan introduces `PhotoClassificationService`,
+        `ProductEnrichmentService`, and `ListingDraftService` as
+        separate services. Each service makes its own HTTP call to
+        external APIs, creating 3 sequential network round-trips.
+
+        We recommend B: Pipeline these calls in a single orchestrator
+        service with parallel execution. Here's why: Matches the
+        "minimal diff" preference — one service instead of three,
+        and cuts latency in half by parallelizing independent API calls.
+
+        Options:
+        A) Keep the 3-service design (easier to test in isolation,
+           but 3x the network latency)
+        B) Create one orchestrator service that pipelines all three
+           steps with parallel execution (faster, fewer abstractions)
+        C) Inline everything into the controller (simplest, but
+           violates SRP and makes testing harder)
+
+        [3A | 3B | 3C]
+
+You:   B
+
+Claude: [Continues with remaining architecture issues, then moves
+        to Code Quality, Tests, Performance sections...]
+```
+
+## Usage
+
+```bash
+/plan-eng-review
+```
+
+The skill will:
+1. Run Step 0 scope challenge
+2. Wait for you to select SCOPE REDUCTION, BIG CHANGE, or SMALL CHANGE
+3. Run the appropriate review flow
+4. Present findings as individual AskUserQuestion calls
+5. Produce all required outputs
+
+## Related Skills
+
+- **[plan-ceo-review](/skills/plan-ceo-review)** — Founder mode: rethink the problem, find the 10-star product. Use this BEFORE eng review to set product direction.
+- **[review](/skills/review)** — Paranoid staff engineer mode: pre-landing PR review for structural issues that tests don't catch.
+- **[ship](/skills/ship)** — Release engineer mode: sync main, run tests, resolve reviews, push, open PR.

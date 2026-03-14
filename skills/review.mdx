@@ -1,0 +1,203 @@
+---
+title: "review"
+description: "Paranoid staff engineer mode: pre-landing PR review for bugs that pass CI"
+---
+
+# review
+
+**Pre-landing PR review.** Analyzes diff against main for SQL safety, LLM trust boundary violations, conditional side effects, and other structural issues that tests don't catch.
+
+## When to Use
+
+Use `/review` when you:
+
+- **Want a final check before merging** — find bugs that pass CI but blow up in production
+- **Need structural validation** — N+1 queries, race conditions, stale reads, bad trust boundaries
+- **Have Greptile review comments** and need them triaged and classified
+- **Want paranoid review** — not style nitpicks, but "what can still break?"
+
+<Note>
+**This is paranoid staff engineer mode.** Passing tests do not mean the branch is safe. This skill looks for the whole class of bugs that survive CI and still punch you in the face in production.
+</Note>
+
+## Philosophy
+
+From the README:
+
+> This mode is not about dreaming bigger. It is not about making the plan prettier. It is about asking: **What can still break?**
+
+This is a structural audit, not a style nitpick pass. The skill looks for:
+
+- N+1 queries
+- Stale reads
+- Race conditions
+- Bad trust boundaries
+- Missing indexes
+- Escaping bugs
+- Broken invariants
+- Bad retry logic
+- Tests that pass while missing the real failure mode
+
+## Two-Pass Review
+
+The skill applies a checklist against your diff in two passes:
+
+### Pass 1 (CRITICAL)
+- **SQL & Data Safety** — N+1 queries, missing indexes, non-idempotent writes, raw SQL injection, race conditions
+- **LLM Output Trust Boundary** — unescaped LLM output in HTML/SQL/shell, prompt injection vectors
+
+### Pass 2 (INFORMATIONAL)
+- **Conditional Side Effects** — side effects inside if/unless/case without else, unguarded mutation
+- **Magic Numbers & String Coupling** — hardcoded values that should be constants
+- **Dead Code & Consistency** — unreachable code, inconsistent patterns
+- **LLM Prompt Issues** — prompts missing examples, unclear instructions, no output validation
+- **Test Gaps** — untested new codepaths, missing edge cases
+- **View/Frontend** — inline styles, missing ARIA, inconsistent naming
+
+<Tip>
+**The checklist lives in `.claude/skills/review/checklist.md`**. The skill reads it at runtime, so you can customize it for your codebase.
+</Tip>
+
+## Greptile Integration
+
+[Greptile](https://greptile.com) is a YC company that reviews PRs automatically. It catches real bugs — race conditions, security issues, things that pass CI and blow up in production.
+
+**Setup:** Install Greptile on your GitHub repo at [greptile.com](https://greptile.com). Once it's reviewing your PRs, gstack picks up its comments automatically. No additional configuration.
+
+### How Triage Works
+
+The `/review` skill reads Greptile's PR comments, classifies each one, and takes action:
+
+**VALID & ACTIONABLE** → Added to CRITICAL findings, same AskUserQuestion flow (A: Fix it now, B: Acknowledge, C: False positive)
+
+**VALID BUT ALREADY FIXED** → Auto-reply: `"Good catch — already fixed in <commit-sha>."` Save to `~/.gstack/greptile-history.md` (type: already-fixed)
+
+**FALSE POSITIVE** → AskUserQuestion with options:
+  - A) Reply to Greptile explaining why this is incorrect (recommended if clearly wrong)
+  - B) Fix it anyway (if low-effort and harmless)
+  - C) Ignore — don't reply, don't fix
+
+  If you choose A, the skill posts a reply and saves the pattern to `~/.gstack/greptile-history.md` (type: fp).
+
+**SUPPRESSED** → Skip silently — these are known false positives from previous triage.
+
+### Learning Over Time
+
+Every false positive you confirm gets saved to `~/.gstack/greptile-history.md`. Future runs auto-skip known FP patterns for your codebase.
+
+`/retro` tracks Greptile's batting average over time — so you can see whether the signal-to-noise ratio is improving.
+
+## Example Workflow
+
+```
+You:   /review
+
+Claude: [Fetches latest main, reads checklist, runs git diff]
+
+        Pre-Landing Review: 2 issues (1 critical, 1 informational)
+        + 3 Greptile comments (1 valid, 1 fixed, 1 FP)
+
+        ## CRITICAL
+
+        [SQL & DATA SAFETY] app/services/payment_service.rb:47
+        Race condition: concurrent charges can double-debit.
+        Missing DB-level advisory lock around the charge block.
+
+        We recommend A: Add advisory lock. Here's why: This is
+        a payment operation — race conditions cause real financial
+        loss. The fix is 3 lines.
+
+        Options:
+        A) Fix it now — wrap charge in `with_advisory_lock`
+        B) Acknowledge and ship anyway
+        C) It's a false positive — skip
+
+        [1A | 1B | 1C]
+
+You:   A
+
+Claude: [Applies the fix]
+
+        ## Greptile Review
+
+        [ALREADY FIXED] app/models/user.rb:12 — Missing null check
+        on email before downcase.
+        Already fixed in commit abc1234. Auto-replying.
+
+        [FALSE POSITIVE] lib/auth.rb:88 — "Token comparison should
+        use constant-time comparison." We already use
+        ActiveSupport::SecurityUtils.secure_compare here.
+
+        We recommend A: Reply to Greptile. Here's why: This is
+        clearly wrong — we're already using secure_compare on line 88.
+        Pushing back helps Greptile learn.
+
+        Options:
+        A) Reply to Greptile explaining (recommended)
+        B) Fix it anyway (already fixed, no-op)
+        C) Ignore
+
+        [2A | 2B | 2C]
+
+You:   A
+
+Claude: Replied to Greptile. Saved pattern to history.
+
+        ## Summary
+
+        1 critical issue fixed (race condition)
+        1 Greptile comment auto-acknowledged (already fixed)
+        1 Greptile false positive replied to and saved
+```
+
+## Output Format
+
+**If CRITICAL issues found:**
+- Output all findings (critical + informational)
+- For EACH critical issue, use a separate AskUserQuestion:
+  - The problem (`file:line` + description)
+  - Your recommended fix
+  - Options: A) Fix it now (recommend), B) Acknowledge and ship anyway, C) It's a false positive — skip
+- After all questions answered, if you chose A (fix) on any issue, apply the fixes
+
+**If only non-critical issues found:**
+- Output them and continue. No action needed.
+
+**If no issues found:**
+- Output `Pre-Landing Review: No issues found.`
+
+<Warning>
+**Always output ALL findings** — both critical and informational. The user must see every issue.
+</Warning>
+
+## Important Rules
+
+- **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
+- **Read-only by default.** Only modify files if the user explicitly chooses "Fix it now" on a critical issue. Never commit, push, or create PRs.
+- **Be terse.** One line problem, one line fix. No preamble.
+- **Only flag real problems.** Skip anything that's fine.
+
+## Usage
+
+```bash
+/review
+```
+
+The skill will:
+1. Check if you're on `main` (abort if yes)
+2. Check if there's a diff against `origin/main` (abort if no diff)
+3. Read `.claude/skills/review/checklist.md`
+4. Check for Greptile review comments (if a PR exists)
+5. Fetch the latest `origin/main`
+6. Run `git diff origin/main`
+7. Apply the checklist in two passes (CRITICAL, then INFORMATIONAL)
+8. Output findings
+9. For each CRITICAL issue, use AskUserQuestion with fix recommendation
+10. For each Greptile comment, classify and take action
+11. Apply fixes if user chose "Fix it now"
+
+## Related Skills
+
+- **[ship](/skills/ship)** — Release engineer mode: includes `/review` as Step 3.5 pre-landing review. Use `/ship` to run tests, review, and create PR in one go.
+- **[plan-ceo-review](/skills/plan-ceo-review)** — Founder mode: rethink the problem before writing code.
+- **[plan-eng-review](/skills/plan-eng-review)** — Eng manager mode: lock in architecture before implementation.

@@ -1,80 +1,479 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get started with gstack in 5 minutes - from installation to your first workflow
 ---
 
-## Get started in three steps
+This guide will walk you through installing gstack and running your first workflow. You'll learn how to invoke each skill and see them work together in a real development scenario.
 
-Get your documentation site running locally and make your first customization.
+## Install gstack
 
-### Step 1: Set up your local environment
+If you haven't installed gstack yet, paste this into Claude Code:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+```text
+Install gstack: run `git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` then add a "gstack" section to CLAUDE.md
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+Claude will handle the installation automatically. This takes about 10 seconds.
 </Note>
+
+## Your First Workflow
+
+Let's walk through a complete feature development cycle using gstack's specialized skills.
+
+### 1. Plan with CEO Review
+
+Before writing any code, use `/plan-ceo-review` to pressure-test your idea:
+
+<Steps>
+  <Step title="Enter plan mode">
+    Describe what you want to build:
+
+    ```text
+    I want to add photo upload to our listing app. Sellers should be able to 
+    upload a photo of their item and we create the listing from it.
+    ```
+  </Step>
+
+  <Step title="Run CEO review">
+    Type `/plan-ceo-review` in Claude Code.
+
+    The skill will:
+    - Challenge the premise (is photo upload the real feature?)
+    - Find the 10-star product hiding in your request
+    - Expand scope to create better user experience
+    - Think about what would make this truly delightful
+
+    Example output:
+    ```text
+    "Photo upload" is not the feature. The real job is helping sellers 
+    create listings that actually sell. Here's what the 10-star version 
+    looks like: auto-identify the product from the photo, pull specs and 
+    pricing comps from the web, draft the title and description, suggest 
+    the best hero image...
+    ```
+  </Step>
+</Steps>
+
+### 2. Lock in Architecture
+
+Once you have product direction, use `/plan-eng-review` to build the technical plan:
+
+```text
+/plan-eng-review
+```
+
+The skill will:
+- Design the system architecture
+- Map out data flows and state transitions  
+- Identify edge cases and failure modes
+- Generate diagrams (sequence, state, component)
+- Plan test coverage
+- Document trust boundaries
+
+<Note>
+This skill generates ASCII diagrams to force hidden assumptions into the open. Diagrams make hand-wavy planning harder.
+</Note>
+
+### 3. Implement the Feature
+
+Exit plan mode and start coding. Claude will implement based on the locked-in plan.
+
+```text
+Let's implement this. Start with the upload endpoint and enrichment pipeline.
+```
+
+### 4. Review the Code
+
+Once implementation is done, run a paranoid code review:
+
+```text
+/review
+```
+
+The skill will:
+- Find race conditions
+- Check for N+1 queries  
+- Identify trust boundary issues
+- Look for missing error handling
+- Catch bugs that pass CI but fail in production
+- Triage Greptile review comments (if installed)
+
+<CodeGroup>
+```text Example Finding
+Race condition: two tabs can overwrite cover-photo selection.
+Trust boundary: pulling web data into draft generation creates 
+a prompt injection vector. 
+Missing: orphan cleanup for failed uploads.
+```
+</CodeGroup>
+
+### 5. Ship It
+
+After fixing review issues, use `/ship` for the final mile:
+
+```text
+/ship
+```
+
+<Steps>
+  <Step title="Automated workflow">
+    The skill runs completely automatically:
+    - Syncs with origin/main
+    - Runs test suites
+    - Bumps version (auto-chooses PATCH/MICRO)
+    - Updates CHANGELOG
+    - Commits changes
+    - Pushes branch
+    - Creates pull request
+  </Step>
+
+  <Step title="Output">
+    You get a PR URL at the end:
+    ```text
+    ✓ Tests pass (247 passed)
+    ✓ Version bumped: 2.4.1 → 2.4.2
+    ✓ CHANGELOG updated
+    ✓ Pushed to origin/feature-photo-upload
+    
+    PR: https://github.com/you/app/pull/42
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+`/ship` is fully automated and non-interactive. It only stops for merge conflicts, test failures, or critical review issues.
+</Warning>
+
+### 6. QA Test the Feature
+
+Test your feature on staging with `/qa`:
+
+```text
+/qa https://staging.myapp.com
+```
+
+Or, if you're on a feature branch, just run `/qa` with no URL to automatically test affected pages:
+
+```text
+/qa
+```
+
+<Steps>
+  <Step title="Diff-aware mode">
+    When run on a feature branch, `/qa` automatically:
+    - Analyzes your git diff
+    - Identifies affected routes and pages
+    - Detects your local dev server
+    - Tests each changed page end-to-end
+  </Step>
+
+  <Step title="Example output">
+    ```text
+    Analyzing branch diff against main...
+    12 files changed: 3 controllers, 2 views, 4 services
+    
+    Affected routes: /listings/new, /listings/:id, /api/listings
+    Detected app running on localhost:3000.
+    
+    [Tests each route — navigates, fills forms, screenshots]
+    
+    QA Report: 3 routes tested, all working.
+    - /listings/new: upload + enrichment flow works end to end
+    - /listings/:id: detail page renders correctly
+    - /api/listings: returns 200 with expected shape
+    No console errors. No regressions on adjacent pages.
+    ```
+  </Step>
+</Steps>
+
+## Skill Quick Reference
+
+Here's how to invoke each skill with real examples:
+
+### Planning Skills
+
+<CodeGroup>
+```text /plan-ceo-review
+/plan-ceo-review
+
+Rethinks the problem from first principles.
+Finds the 10-star product hiding in your request.
+Challenges premises and expands scope when it 
+creates better user experience.
+```
+
+```text /plan-eng-review  
+/plan-eng-review
+
+Locks in architecture, data flows, and diagrams.
+Maps edge cases, failure modes, and test coverage.
+Generates sequence and state diagrams.
+No code changes - just rigorous technical planning.
+```
+</CodeGroup>
+
+### Development Skills
+
+<CodeGroup>
+```text /review
+/review
+
+Paranoid staff engineer mode.
+Finds race conditions, N+1 queries, trust issues.
+Catches bugs that pass CI but fail in production.
+Triages Greptile review comments automatically.
+```
+
+```text /ship
+/ship
+
+Fully automated release workflow.
+Syncs main, runs tests, bumps version, 
+updates CHANGELOG, pushes, creates PR.
+Only stops for conflicts or test failures.
+```
+</CodeGroup>
+
+### Testing Skills
+
+<CodeGroup>
+```text /browse
+/browse https://staging.myapp.com
+
+Gives the agent eyes for QA testing.
+Navigate pages, click buttons, fill forms,
+take screenshots, check console errors.
+~100ms per command after first launch.
+```
+
+```text /qa
+/qa
+
+Systematic QA testing with health scores.
+Diff-aware: auto-tests pages you changed.
+Full mode: explores entire app.
+Quick mode: 30-second smoke test.
+```
+
+```text /setup-browser-cookies
+/setup-browser-cookies
+
+Imports logged-in sessions from your real browser.
+Supports Comet, Chrome, Arc, Brave, Edge.
+Interactive picker UI or direct domain import.
+```
+</CodeGroup>
+
+### Retrospective Skill
+
+```text /retro
+/retro
+
+Engineering manager mode.
+Analyzes commit history, work patterns, velocity.
+Team-aware: breaks down every contributor.
+Tracks metrics, detects hotspots, shows trends.
+```
+
+## Testing Authenticated Pages
+
+To test pages behind login, first import your browser session:
+
+<Steps>
+  <Step title="Import cookies">
+    ```text
+    /setup-browser-cookies
+    ```
+
+    This opens an interactive picker where you select which domains to import.
+  </Step>
+
+  <Step title="Or import directly">
+    Skip the UI and import a specific domain:
+
+    ```bash
+    /setup-browser-cookies staging.myapp.com
+    ```
+  </Step>
+
+  <Step title="Run QA tests">
+    Now `/qa` and `/browse` can access authenticated pages:
+
+    ```text
+    /qa https://staging.myapp.com --quick
+    ```
+  </Step>
+</Steps>
+
+## End-to-End Example
+
+Here's a complete workflow from idea to shipped feature:
+
+```text
+You:   I want to add seller photo upload to the listing app.
+
+You:   /plan-ceo-review
+
+Claude: The real job is helping sellers create listings that sell.
+        10-star version: auto-identify product, pull specs, draft 
+        title and description, suggest best hero image...
+
+You:   /plan-eng-review
+
+Claude: [Architecture diagram, state machine for upload → classify → 
+        enrich → draft pipeline, async job boundaries, test matrix]
+
+You:   Let's implement this.
+
+Claude: [Implements the feature]
+
+You:   /review
+
+Claude: Race condition: two tabs can overwrite cover-photo selection.
+        Missing: orphan cleanup for failed uploads.
+
+You:   Fix those issues.
+
+Claude: [Fixes the issues]
+
+You:   /ship
+
+Claude: [Syncs main, runs tests, pushes branch, opens PR]
+        PR: https://github.com/you/app/pull/42
+
+You:   /qa
+
+Claude: Analyzing branch diff... 8 files changed, 3 routes affected.
+        [Tests /listings/new, /listings/:id, /api/listings]
+        All 3 routes working. Upload + enrichment flow passes.
+
+You:   /setup-browser-cookies staging.myapp.com
+
+Claude: Imported 8 cookies for staging.myapp.com from Chrome.
+
+You:   /qa https://staging.myapp.com --quick
+
+Claude: [Smoke test: homepage + 5 pages, 30 seconds]
+        Health Score: 91/100. No critical issues.
+```
+
+## QA Modes
+
+The `/qa` skill has four testing modes:
+
+<CardGroup cols={2}>
+  <Card title="Diff-aware" icon="git-alt">
+    **Automatic on feature branches**
+    
+    Analyzes git diff, identifies affected pages, tests them specifically. 
+    The fastest path from "I just wrote code" to "it works."
+    
+    ```text
+    /qa
+    ```
+  </Card>
+
+  <Card title="Full" icon="magnifying-glass">
+    **Systematic exploration**
+    
+    Visit every reachable page. Document 5-10 well-evidenced issues. 
+    Takes 5-15 minutes.
+    
+    ```text
+    /qa https://myapp.com
+    ```
+  </Card>
+
+  <Card title="Quick" icon="bolt">
+    **30-second smoke test**
+    
+    Homepage + top 5 nav targets. Check: loads? Console errors? Broken links?
+    
+    ```text
+    /qa https://myapp.com --quick
+    ```
+  </Card>
+
+  <Card title="Regression" icon="code-compare">
+    **Compare against baseline**
+    
+    Run full mode, then diff against previous run. Which issues are fixed? 
+    Which are new? What's the score delta?
+    
+    ```text
+    /qa --regression .gstack/qa-reports/baseline.json
+    ```
+  </Card>
+</CardGroup>
+
+## Browse Command Patterns
+
+The `/browse` skill uses a persistent headless browser. Here are common patterns:
+
+### Verify a page loads
+
+```bash
+$B goto https://yourapp.com
+$B text                          # content loads?
+$B console                       # JS errors?
+$B is visible ".main-content"    # key elements present?
+```
+
+### Test a user flow
+
+```bash
+$B goto https://app.com/login
+$B snapshot -i                   # see all interactive elements
+$B fill @e3 "user@test.com"
+$B fill @e4 "password"
+$B click @e5                     # submit
+$B snapshot -D                   # diff: what changed?
+$B is visible ".dashboard"       # success state?
+```
+
+### Visual evidence for bugs
+
+```bash
+$B snapshot -i -a -o /tmp/annotated.png   # labeled screenshot
+$B screenshot /tmp/bug.png                # plain screenshot  
+$B console                                # error log
+```
+
+<Note>
+The `$B` variable is set by the skill setup code. It points to the browse binary at `~/.claude/skills/gstack/browse/dist/browse` or `.claude/skills/gstack/browse/dist/browse` for project installs.
+</Note>
+
+## Running Multiple Sessions
+
+gstack is powerful with one Claude Code session. It's transformative with ten.
+
+[Conductor](https://conductor.build) runs multiple Claude Code sessions in parallel — each in its own isolated workspace. You can have:
+
+- One session running `/qa` on staging
+- Another doing `/review` on a PR  
+- A third implementing a feature
+- Seven more working on other branches
+
+All at the same time.
+
+<Note>
+Each workspace gets its own isolated browser instance automatically — separate Chromium process, cookies, tabs, and logs in `.gstack/`. No port collisions, no shared state.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Browse Skill" icon="browser" href="/skills/browse">
+    Deep dive into headless browser automation
+  </Card>
+  <Card title="Ship Workflow" icon="ship" href="/skills/ship">
+    Complete reference for the automated ship workflow
+  </Card>
+  <Card title="Plan Reviews" icon="lightbulb" href="/skills/plan-ceo-review">
+    Master CEO and engineering plan reviews
+  </Card>
+  <Card title="QA Testing" icon="clipboard-check" href="/skills/qa">
+    Comprehensive QA testing guide
+  </Card>
+</CardGroup>
